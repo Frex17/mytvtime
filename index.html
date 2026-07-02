@@ -1,0 +1,1087 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ShowTime</title>
+<meta name="description" content="Il tuo diario personale di serie TV, film e anime">
+<meta name="theme-color" content="#100E0B">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ShowTime">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#100E0B;
+  --surface:#1B1712;
+  --surface-2:#241E16;
+  --line:#332B1F;
+  --cream:#F2EAD9;
+  --muted:#9A8F7B;
+  --gold:#B8963E;
+  --gold-light:#D8BC72;
+  --danger:#B05A4A;
+  --serif:'Cormorant Garamond',serif;
+  --sans:'DM Sans',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html{background:var(--bg)}
+body{
+  font-family:var(--sans);background:var(--bg);color:var(--cream);
+  min-height:100vh;padding-bottom:calc(96px + env(safe-area-inset-bottom));
+}
+button{font-family:var(--sans);cursor:pointer;border:none;background:none;color:inherit}
+input{font-family:var(--sans)}
+img{display:block}
+
+/* ---------- header ---------- */
+header{
+  position:sticky;top:0;z-index:40;background:rgba(16,14,11,.92);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--line);
+  padding:calc(10px + env(safe-area-inset-top)) 18px 10px;
+  display:flex;align-items:center;justify-content:space-between;
+}
+.wordmark{font-family:var(--serif);font-weight:700;font-size:26px;letter-spacing:.5px}
+.wordmark .gold{color:var(--gold)}
+.gear{font-size:20px;padding:6px 8px;border-radius:10px;color:var(--muted)}
+.gear:active{background:var(--surface)}
+
+/* ---------- bottom nav (liquid glass) ---------- */
+nav{
+  position:fixed;bottom:calc(12px + env(safe-area-inset-bottom));left:50%;
+  transform:translateX(-50%);width:min(560px, calc(100% - 24px));z-index:40;
+  background:rgba(27,23,18,.55);
+  backdrop-filter:blur(24px) saturate(160%);-webkit-backdrop-filter:blur(24px) saturate(160%);
+  border:1px solid rgba(242,234,217,.10);
+  border-radius:999px;
+  box-shadow:0 10px 34px rgba(0,0,0,.5), inset 0 1px 0 rgba(242,234,217,.08);
+  display:flex;padding:6px;gap:2px;
+}
+nav button{
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;
+  font-size:10px;font-weight:500;color:var(--muted);letter-spacing:.3px;
+  padding:7px 0;border-radius:999px;transition:background .25s,color .25s;
+}
+nav button .ic{font-size:19px;line-height:1.15}
+nav button.active{
+  color:var(--gold-light);
+  background:rgba(184,150,62,.16);
+  box-shadow:inset 0 0 0 1px rgba(184,150,62,.28), inset 0 1px 0 rgba(242,234,217,.06);
+}
+
+/* ---------- layout ---------- */
+main{padding:16px 16px 24px;max-width:640px;margin:0 auto}
+.view{display:none}
+.view.active{display:block}
+h2.section{
+  font-family:var(--serif);font-weight:600;font-size:22px;color:var(--cream);
+  margin:18px 2px 10px;
+}
+h2.section:first-child{margin-top:2px}
+
+/* ---------- chips ---------- */
+.chips{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 10px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{
+  white-space:nowrap;padding:7px 14px;border-radius:999px;font-size:13px;font-weight:500;
+  background:var(--surface);color:var(--muted);border:1px solid var(--line);
+}
+.chip.active{background:var(--gold);color:#181307;border-color:var(--gold)}
+
+/* ---------- cards ---------- */
+.card{
+  display:flex;gap:12px;background:var(--surface);border:1px solid var(--line);
+  border-radius:14px;padding:10px;margin-bottom:10px;align-items:center;
+}
+.poster{
+  width:56px;height:84px;border-radius:8px;object-fit:cover;flex-shrink:0;
+  background:var(--surface-2);
+}
+.poster.ph{display:flex;align-items:center;justify-content:center;font-size:22px;color:var(--muted)}
+.card-body{flex:1;min-width:0}
+.card-title{font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card-sub{font-size:12px;color:var(--muted);margin-top:2px}
+.badge{
+  display:inline-block;font-size:10px;letter-spacing:1px;font-weight:700;
+  color:var(--gold);border:1px solid var(--gold);border-radius:5px;
+  padding:1px 5px;margin-left:6px;vertical-align:1px;
+}
+.progress{height:5px;background:var(--surface-2);border-radius:99px;margin-top:8px;overflow:hidden}
+.progress > div{height:100%;background:var(--gold);border-radius:99px;transition:width .3s}
+.next-line{display:flex;align-items:center;gap:8px;margin-top:7px}
+.next-pill{
+  font-size:11px;font-weight:700;color:var(--gold-light);background:var(--surface-2);
+  border-radius:6px;padding:3px 7px;letter-spacing:.5px;
+}
+.check-btn{
+  width:42px;height:42px;border-radius:50%;flex-shrink:0;
+  background:var(--surface-2);border:1.5px solid var(--gold);color:var(--gold);
+  font-size:18px;display:flex;align-items:center;justify-content:center;
+}
+.check-btn:active{background:var(--gold);color:#181307}
+.check-btn.done{background:var(--gold);color:#181307}
+.stars-mini{font-size:12px;color:var(--gold);margin-top:3px;letter-spacing:2px}
+
+/* ---------- empty state ---------- */
+.empty{
+  text-align:center;color:var(--muted);padding:48px 20px;font-size:14px;line-height:1.6;
+}
+.empty .big{font-size:34px;margin-bottom:10px}
+.empty button{
+  margin-top:14px;background:var(--gold);color:#181307;font-weight:700;
+  border-radius:999px;padding:10px 22px;font-size:14px;
+}
+
+/* ---------- search ---------- */
+.searchbar{display:flex;gap:8px;margin-bottom:14px}
+.searchbar input{
+  flex:1;background:var(--surface);border:1px solid var(--line);border-radius:12px;
+  padding:12px 14px;color:var(--cream);font-size:15px;outline:none;
+}
+.searchbar input:focus{border-color:var(--gold)}
+.searchbar button{
+  background:var(--gold);color:#181307;border-radius:12px;padding:0 18px;
+  font-weight:700;font-size:15px;
+}
+.add-btn{
+  flex-shrink:0;background:var(--surface-2);border:1.5px solid var(--gold);color:var(--gold);
+  border-radius:999px;padding:8px 14px;font-size:13px;font-weight:700;
+}
+.add-btn.in-lib{border-color:var(--line);color:var(--muted)}
+
+/* ---------- detail overlay ---------- */
+.overlay{
+  position:fixed;inset:0;z-index:60;background:var(--bg);overflow-y:auto;
+  display:none;padding-bottom:40px;
+}
+.overlay.open{display:block}
+.detail-head{position:relative;padding:0}
+.backdrop{width:100%;height:200px;object-fit:cover;opacity:.45;background:var(--surface)}
+.detail-top{
+  position:absolute;top:0;left:0;right:0;
+  padding:calc(10px + env(safe-area-inset-top)) 14px 0;
+  display:flex;justify-content:space-between;
+}
+.circle-btn{
+  width:38px;height:38px;border-radius:50%;background:rgba(16,14,11,.75);
+  color:var(--cream);font-size:17px;display:flex;align-items:center;justify-content:center;
+  border:1px solid var(--line);
+}
+.detail-body{padding:0 18px;max-width:640px;margin:-52px auto 0;position:relative}
+.detail-title{font-family:var(--serif);font-weight:700;font-size:30px;line-height:1.1}
+.detail-sub{color:var(--muted);font-size:13px;margin-top:6px}
+.stars{font-size:26px;letter-spacing:6px;margin:14px 0 4px;color:var(--muted)}
+.stars span{cursor:pointer}
+.stars span.on{color:var(--gold)}
+.detail-actions{display:flex;gap:8px;margin:14px 0 6px;flex-wrap:wrap}
+.action{
+  border:1px solid var(--line);background:var(--surface);color:var(--cream);
+  border-radius:10px;padding:9px 14px;font-size:13px;font-weight:500;
+}
+.action.gold{border-color:var(--gold);color:var(--gold)}
+.action.red{border-color:var(--danger);color:var(--danger)}
+.season{
+  background:var(--surface);border:1px solid var(--line);border-radius:12px;
+  margin-top:10px;overflow:hidden;
+}
+.season-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 14px;font-weight:700;font-size:14px;
+}
+.season-head .cnt{color:var(--muted);font-weight:400;font-size:12px;margin-left:8px}
+.season-all{
+  font-size:12px;color:var(--gold);border:1px solid var(--gold);border-radius:8px;
+  padding:4px 9px;font-weight:700;
+}
+.ep{
+  display:flex;align-items:center;gap:10px;padding:9px 14px;
+  border-top:1px solid var(--line);font-size:13px;
+}
+.ep .num{color:var(--gold-light);font-weight:700;width:34px;flex-shrink:0}
+.ep .name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ep .date{color:var(--muted);font-size:11px;flex-shrink:0}
+.ep-check{
+  width:26px;height:26px;border-radius:50%;flex-shrink:0;
+  border:1.5px solid var(--muted);color:transparent;font-size:13px;
+  display:flex;align-items:center;justify-content:center;
+}
+.ep-check.on{border-color:var(--gold);background:var(--gold);color:#181307}
+.loading-eps{padding:14px;color:var(--muted);font-size:13px;border-top:1px solid var(--line)}
+
+/* ---------- stats ---------- */
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stat{
+  background:var(--surface);border:1px solid var(--line);border-radius:14px;
+  padding:16px 14px;text-align:center;
+}
+.stat .n{font-family:var(--serif);font-weight:700;font-size:34px;color:var(--gold)}
+.stat .l{font-size:12px;color:var(--muted);margin-top:2px;letter-spacing:.5px}
+
+/* ---------- modal / settings ---------- */
+.modal-bg{
+  position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.6);display:none;
+  align-items:flex-end;justify-content:center;
+}
+.modal-bg.open{display:flex}
+.modal{
+  background:var(--surface);border:1px solid var(--line);border-radius:18px 18px 0 0;
+  padding:22px 18px calc(24px + env(safe-area-inset-bottom));width:100%;max-width:640px;
+}
+.modal h3{font-family:var(--serif);font-size:22px;margin-bottom:6px}
+.modal p{font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:12px}
+.modal input{
+  width:100%;background:var(--bg);border:1px solid var(--line);border-radius:10px;
+  padding:12px;color:var(--cream);font-size:14px;outline:none;margin-bottom:12px;
+}
+.modal input:focus{border-color:var(--gold)}
+.modal .save{
+  width:100%;background:var(--gold);color:#181307;font-weight:700;font-size:15px;
+  border-radius:12px;padding:13px;
+}
+
+/* ---------- toast ---------- */
+#toast{
+  position:fixed;left:50%;bottom:calc(104px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(20px);
+  background:var(--gold);color:#181307;font-weight:700;font-size:13px;
+  padding:10px 18px;border-radius:999px;opacity:0;transition:all .25s;z-index:90;
+  pointer-events:none;white-space:nowrap;
+}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+@media (prefers-reduced-motion: reduce){
+  *{transition:none !important}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wordmark"><span class="gold">Show</span>Time</div>
+  <button class="gear" id="btnSettings" aria-label="Impostazioni">&#9881;</button>
+</header>
+
+<main>
+
+  <!-- ============ SERIE ============ -->
+  <section class="view active" id="view-serie">
+    <div class="chips" id="serieChips">
+      <button class="chip active" data-f="watching">In corso</button>
+      <button class="chip" data-f="planned">Da iniziare</button>
+      <button class="chip" data-f="completed">Completate</button>
+      <button class="chip" data-f="all">Tutte</button>
+    </div>
+    <div id="serieList"></div>
+  </section>
+
+  <!-- ============ ANIME ============ -->
+  <section class="view" id="view-anime">
+    <div class="chips" id="animeChips">
+      <button class="chip active" data-f="watching">In corso</button>
+      <button class="chip" data-f="planned">Da iniziare</button>
+      <button class="chip" data-f="completed">Completati</button>
+      <button class="chip" data-f="all">Tutti</button>
+    </div>
+    <div id="animeList"></div>
+  </section>
+
+  <!-- ============ FILM ============ -->
+  <section class="view" id="view-film">
+    <div class="chips" id="filmChips">
+      <button class="chip active" data-f="planned">Da vedere</button>
+      <button class="chip" data-f="completed">Visti</button>
+    </div>
+    <div id="filmList"></div>
+  </section>
+
+  <!-- ============ CERCA ============ -->
+  <section class="view" id="view-cerca">
+    <div class="searchbar">
+      <input type="search" id="searchInput" placeholder="Serie, film o anime..." autocomplete="off">
+      <button id="btnSearch">Cerca</button>
+    </div>
+    <div id="searchResults"></div>
+  </section>
+
+  <!-- ============ STATS ============ -->
+  <section class="view" id="view-stats">
+    <h2 class="section">Le tue statistiche</h2>
+    <div class="stat-grid" id="statGrid"></div>
+  </section>
+
+</main>
+
+<nav>
+  <button class="active" data-v="serie"><span class="ic">&#128250;</span>Serie</button>
+  <button data-v="anime"><span class="ic">&#9961;&#65039;</span>Anime</button>
+  <button data-v="film"><span class="ic">&#127916;</span>Film</button>
+  <button data-v="cerca"><span class="ic">&#128269;</span>Cerca</button>
+  <button data-v="stats"><span class="ic">&#128202;</span>Stats</button>
+</nav>
+
+<!-- ============ DETAIL OVERLAY ============ -->
+<div class="overlay" id="detail"></div>
+
+<!-- ============ SETTINGS MODAL ============ -->
+<div class="modal-bg" id="settingsModal">
+  <div class="modal">
+    <h3>Impostazioni</h3>
+    <p>Incolla qui la tua chiave API di TMDB (themoviedb.org). Va bene sia la <b>Chiave API</b> breve sia il <b>Token di lettura</b> lungo che inizia con eyJ. Viene salvata solo su questo dispositivo.</p>
+    <input type="text" id="tmdbKeyInput" placeholder="Chiave API TMDB" autocomplete="off">
+    <button class="save" id="btnSaveKey">Salva</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+
+/* ================= CONFIG ================= */
+const SUPABASE_URL = "https://sdksosnjtzkdgolntfrp.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNka3Nvc25qdHprZGdvbG50ZnJwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEyMDU3MzQsImV4cCI6MjA5Njc4MTczNH0.BT-cI3Obd5TeBa5xN5ckrsC5xIm1MtMphXQABTiWVc8";
+const TMDB_BASE = "https://api.themoviedb.org/3";
+const IMG = "https://image.tmdb.org/t/p/w185";
+const IMG_BIG = "https://image.tmdb.org/t/p/w780";
+
+/* ================= STATE ================= */
+let items = [];          // showtime_items rows
+let episodes = [];       // showtime_episodes rows
+let serieFilter = "watching";
+let animeFilter = "watching";
+let filmFilter = "planned";
+let currentDetail = null;      // item currently open in overlay
+const seasonCache = {};        // "tmdbId-season" -> episodes array from TMDB
+
+function tmdbKey(){ return localStorage.getItem("tmdb_key") || ""; }
+
+/* ================= HELPERS ================= */
+function $(sel){ return document.querySelector(sel); }
+function esc(s){ return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+function toast(msg){
+  const t = $("#toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(t._h);
+  t._h = setTimeout(()=>t.classList.remove("show"), 2200);
+}
+function yearOf(d){ return d ? d.slice(0,4) : ""; }
+
+/* ================= SUPABASE ================= */
+async function sb(path, opts){
+  opts = opts || {};
+  const headers = Object.assign({
+    "apikey": SUPABASE_ANON_KEY,
+    "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+    "Content-Type": "application/json"
+  }, opts.headers || {});
+  const res = await fetch(SUPABASE_URL + "/rest/v1/" + path, {
+    method: opts.method || "GET",
+    headers: headers,
+    body: opts.body ? JSON.stringify(opts.body) : undefined
+  });
+  if(!res.ok){
+    const txt = await res.text();
+    throw new Error("Supabase " + res.status + ": " + txt);
+  }
+  if(res.status === 204) return null;
+  const ct = res.headers.get("content-type") || "";
+  return ct.includes("json") ? res.json() : null;
+}
+
+async function loadLibrary(){
+  try{
+    const r = await Promise.all([
+      sb("showtime_items?select=*&order=added_at.desc"),
+      sb("showtime_episodes?select=tmdb_id,season,episode,watched_at")
+    ]);
+    items = r[0] || [];
+    episodes = r[1] || [];
+    renderAll();
+  }catch(e){
+    console.error(e);
+    toast("Errore di connessione al database");
+  }
+}
+
+/* ================= TMDB ================= */
+async function tmdb(path, params){
+  const key = tmdbKey();
+  if(!key) throw new Error("no-key");
+  params = params || {};
+  params.language = "it-IT";
+  const usp = new URLSearchParams(params);
+  const headers = {};
+  if(key.startsWith("eyJ")){
+    headers["Authorization"] = "Bearer " + key;
+  }else{
+    usp.set("api_key", key);
+  }
+  const res = await fetch(TMDB_BASE + path + "?" + usp.toString(), { headers: headers });
+  if(!res.ok) throw new Error("TMDB " + res.status);
+  return res.json();
+}
+
+/* ================= PROGRESS LOGIC ================= */
+function watchedSet(tmdbId){
+  const set = new Set();
+  for(const e of episodes){
+    if(e.tmdb_id === tmdbId) set.add(e.season + "-" + e.episode);
+  }
+  return set;
+}
+function progressOf(item){
+  if(item.media_type === "movie"){
+    return { watched: item.status === "completed" ? 1 : 0, total: 1, next: null };
+  }
+  const seasons = item.seasons_json || [];
+  const set = watchedSet(item.tmdb_id);
+  let total = 0, watched = 0, next = null;
+  for(const s of seasons){
+    for(let e = 1; e <= s.c; e++){
+      total++;
+      if(set.has(s.n + "-" + e)) watched++;
+      else if(!next) next = { s: s.n, e: e };
+    }
+  }
+  return { watched: watched, total: total, next: next };
+}
+function statusOf(item){
+  if(item.status === "dropped") return "dropped";
+  if(item.media_type === "movie") return item.status;
+  const p = progressOf(item);
+  if(p.total > 0 && p.watched >= p.total) return "completed";
+  if(p.watched > 0) return "watching";
+  return "planned";
+}
+
+/* ================= RENDER: SERIE / ANIME ================= */
+function renderSerie(){
+  renderTvList("#serieList", serieFilter, false);
+}
+function renderAnime(){
+  renderTvList("#animeList", animeFilter, true);
+}
+function renderTvList(target, filter, animeMode){
+  const list = $(target);
+  let shows = items.filter(i => i.media_type === "tv" && !!i.is_anime === animeMode);
+  if(filter !== "all") shows = shows.filter(i => statusOf(i) === filter);
+
+  if(shows.length === 0){
+    const word = animeMode ? "anime" : "serie";
+    const msgs = {
+      watching: "Nessun " + word + " in corso.<br>Cercane uno e segna il primo episodio!",
+      planned: "Nessun " + word + " da iniziare.",
+      completed: "Nessun " + word + " completato... per ora.",
+      all: "Nessun " + word + " in libreria.<br>Vai su Cerca e aggiungi!"
+    };
+    const icon = animeMode ? "&#9961;&#65039;" : "&#128250;";
+    list.innerHTML = '<div class="empty"><div class="big">' + icon + '</div>' + msgs[filter] +
+      '<br><button onclick="goView(\u0027cerca\u0027)">Cerca</button></div>';
+    return;
+  }
+
+  let html = "";
+  for(const it of shows){
+    const p = progressOf(it);
+    const pct = p.total ? Math.round(p.watched / p.total * 100) : 0;
+    const poster = it.poster_path
+      ? '<img class="poster" src="' + IMG + it.poster_path + '" alt="" loading="lazy">'
+      : '<div class="poster ph">&#127909;</div>';
+    const badge = "";
+    let nextHtml = "";
+    if(p.next && statusOf(it) !== "dropped"){
+      nextHtml = '<div class="next-line"><span class="next-pill">Prossimo: S' + p.next.s + ' E' + p.next.e + '</span></div>';
+    }
+    const stars = it.rating ? '<div class="stars-mini">' + "&#9733;".repeat(it.rating) + '</div>' : "";
+    const checkBtn = p.next
+      ? '<button class="check-btn" onclick="event.stopPropagation();markNext(' + it.tmdb_id + ')" aria-label="Segna prossimo episodio visto">&#10003;</button>'
+      : '<button class="check-btn done" aria-label="Completata">&#10003;</button>';
+    html += '<div class="card" onclick="openDetail(' + it.tmdb_id + ',\u0027tv\u0027)">' +
+      poster +
+      '<div class="card-body">' +
+        '<div class="card-title">' + esc(it.title) + badge + '</div>' +
+        '<div class="card-sub">' + p.watched + ' / ' + p.total + ' episodi &middot; ' + yearOf(it.first_air_date) + '</div>' +
+        stars +
+        '<div class="progress"><div style="width:' + pct + '%"></div></div>' +
+        nextHtml +
+      '</div>' + checkBtn + '</div>';
+  }
+  list.innerHTML = html;
+}
+
+/* ================= RENDER: FILM ================= */
+function renderFilm(){
+  const list = $("#filmList");
+  const movies = items.filter(i => i.media_type === "movie" && statusOf(i) === filmFilter);
+  if(movies.length === 0){
+    const msg = filmFilter === "planned"
+      ? "Nessun film da vedere.<br>Aggiungine uno dalla ricerca!"
+      : "Nessun film visto... ancora.";
+    list.innerHTML = '<div class="empty"><div class="big">&#127916;</div>' + msg +
+      '<br><button onclick="goView(\u0027cerca\u0027)">Cerca un film</button></div>';
+    return;
+  }
+  let html = "";
+  for(const it of movies){
+    const poster = it.poster_path
+      ? '<img class="poster" src="' + IMG + it.poster_path + '" alt="" loading="lazy">'
+      : '<div class="poster ph">&#127916;</div>';
+    const stars = it.rating ? '<div class="stars-mini">' + "&#9733;".repeat(it.rating) + '</div>' : "";
+    const btn = filmFilter === "planned"
+      ? '<button class="check-btn" onclick="event.stopPropagation();markMovie(' + it.tmdb_id + ',true)" aria-label="Segna visto">&#10003;</button>'
+      : '<button class="check-btn done" onclick="event.stopPropagation();markMovie(' + it.tmdb_id + ',false)" aria-label="Segna non visto">&#10003;</button>';
+    html += '<div class="card" onclick="openDetail(' + it.tmdb_id + ',\u0027movie\u0027)">' +
+      poster +
+      '<div class="card-body">' +
+        '<div class="card-title">' + esc(it.title) + '</div>' +
+        '<div class="card-sub">' + yearOf(it.first_air_date) + (it.runtime ? ' &middot; ' + it.runtime + ' min' : '') + '</div>' +
+        stars +
+      '</div>' + btn + '</div>';
+  }
+  list.innerHTML = html;
+}
+
+/* ================= RENDER: STATS ================= */
+function renderStats(){
+  let epCount = 0, epMinutes = 0, filmCount = 0, filmMinutes = 0, completedSeries = 0, animeCount = 0;
+  for(const it of items){
+    if(it.media_type === "tv"){
+      const p = progressOf(it);
+      epCount += p.watched;
+      epMinutes += p.watched * (it.runtime || 40);
+      if(statusOf(it) === "completed") completedSeries++;
+      if(it.is_anime) animeCount++;
+    }else if(statusOf(it) === "completed"){
+      filmCount++;
+      filmMinutes += it.runtime || 110;
+    }
+  }
+  const totalHours = Math.round((epMinutes + filmMinutes) / 60);
+  const days = Math.floor(totalHours / 24);
+  $("#statGrid").innerHTML =
+    '<div class="stat"><div class="n">' + epCount + '</div><div class="l">Episodi visti</div></div>' +
+    '<div class="stat"><div class="n">' + filmCount + '</div><div class="l">Film visti</div></div>' +
+    '<div class="stat"><div class="n">' + completedSeries + '</div><div class="l">Serie completate</div></div>' +
+    '<div class="stat"><div class="n">' + animeCount + '</div><div class="l">Anime in libreria</div></div>' +
+    '<div class="stat"><div class="n">' + totalHours + '</div><div class="l">Ore di visione</div></div>' +
+    '<div class="stat"><div class="n">' + days + '</div><div class="l">Giorni di visione</div></div>';
+}
+
+function renderAll(){
+  renderSerie();
+  renderAnime();
+  renderFilm();
+  renderStats();
+  if(currentDetail) renderDetailHead();
+}
+
+/* ================= SEARCH ================= */
+async function doSearch(){
+  const q = $("#searchInput").value.trim();
+  if(!q) return;
+  if(!tmdbKey()){
+    openSettings();
+    toast("Prima inserisci la chiave TMDB");
+    return;
+  }
+  const box = $("#searchResults");
+  box.innerHTML = '<div class="empty">Ricerca in corso...</div>';
+  try{
+    const data = await tmdb("/search/multi", { query: q, include_adult: "false" });
+    const results = (data.results || []).filter(r => r.media_type === "tv" || r.media_type === "movie");
+    if(results.length === 0){
+      box.innerHTML = '<div class="empty"><div class="big">&#128269;</div>Nessun risultato per &laquo;' + esc(q) + '&raquo;</div>';
+      return;
+    }
+    let html = "";
+    for(const r of results.slice(0, 20)){
+      const title = r.media_type === "tv" ? (r.name || r.original_name) : (r.title || r.original_title);
+      const date = r.media_type === "tv" ? r.first_air_date : r.release_date;
+      const typeLabel = r.media_type === "tv" ? "Serie TV" : "Film";
+      const inLib = items.some(i => i.tmdb_id === r.id && i.media_type === r.media_type);
+      const poster = r.poster_path
+        ? '<img class="poster" src="' + IMG + r.poster_path + '" alt="" loading="lazy">'
+        : '<div class="poster ph">' + (r.media_type === "tv" ? "&#128250;" : "&#127916;") + '</div>';
+      const btn = inLib
+        ? '<button class="add-btn in-lib">In libreria</button>'
+        : '<button class="add-btn" onclick="addItem(' + r.id + ',\u0027' + r.media_type + '\u0027,this)">&#65291; Aggiungi</button>';
+      html += '<div class="card">' + poster +
+        '<div class="card-body">' +
+          '<div class="card-title">' + esc(title) + '</div>' +
+          '<div class="card-sub">' + typeLabel + ' &middot; ' + yearOf(date) + '</div>' +
+        '</div>' + btn + '</div>';
+    }
+    box.innerHTML = html;
+  }catch(e){
+    console.error(e);
+    box.innerHTML = '<div class="empty">Errore nella ricerca. Controlla la chiave TMDB nelle impostazioni.</div>';
+  }
+}
+
+/* ================= ADD ITEM ================= */
+async function addItem(id, type, btn){
+  if(btn){ btn.textContent = "..."; btn.disabled = true; }
+  try{
+    const d = await tmdb("/" + type + "/" + id, {});
+    let record;
+    if(type === "tv"){
+      const seasons = (d.seasons || [])
+        .filter(s => s.season_number > 0 && s.episode_count > 0)
+        .map(s => ({ n: s.season_number, c: s.episode_count }));
+      const isAnime = (d.genres || []).some(g => g.id === 16) &&
+                      (d.origin_country || []).includes("JP");
+      record = {
+        tmdb_id: d.id,
+        media_type: "tv",
+        title: d.name || d.original_name,
+        poster_path: d.poster_path,
+        backdrop_path: d.backdrop_path,
+        first_air_date: d.first_air_date || null,
+        runtime: (d.episode_run_time && d.episode_run_time[0]) || null,
+        seasons_json: seasons,
+        is_anime: isAnime,
+        status: "planned"
+      };
+    }else{
+      record = {
+        tmdb_id: d.id,
+        media_type: "movie",
+        title: d.title || d.original_title,
+        poster_path: d.poster_path,
+        backdrop_path: d.backdrop_path,
+        first_air_date: d.release_date || null,
+        runtime: d.runtime || null,
+        seasons_json: null,
+        is_anime: false,
+        status: "planned"
+      };
+    }
+    const inserted = await sb("showtime_items?on_conflict=tmdb_id,media_type", {
+      method: "POST",
+      headers: { "Prefer": "resolution=merge-duplicates,return=representation" },
+      body: record
+    });
+    const row = inserted && inserted[0];
+    if(row){
+      items = items.filter(i => !(i.tmdb_id === row.tmdb_id && i.media_type === row.media_type));
+      items.unshift(row);
+    }
+    renderAll();
+    if(btn){ btn.textContent = "In libreria"; btn.classList.add("in-lib"); }
+    toast("Aggiunto: " + record.title);
+  }catch(e){
+    console.error(e);
+    if(btn){ btn.textContent = "&#65291; Aggiungi"; btn.disabled = false; }
+    toast("Errore, riprova");
+  }
+}
+
+/* ================= EPISODE ACTIONS ================= */
+async function markNext(tmdbId){
+  const it = items.find(i => i.tmdb_id === tmdbId && i.media_type === "tv");
+  if(!it) return;
+  const p = progressOf(it);
+  if(!p.next) return;
+  await setEpisode(tmdbId, p.next.s, p.next.e, true);
+  const p2 = progressOf(it);
+  if(p2.watched >= p2.total && p2.total > 0){
+    toast("Serie completata! &#127942;");
+  }else{
+    toast("Visto S" + p.next.s + " E" + p.next.e);
+  }
+}
+
+async function setEpisode(tmdbId, season, ep, watched){
+  try{
+    if(watched){
+      await sb("showtime_episodes?on_conflict=tmdb_id,season,episode", {
+        method: "POST",
+        headers: { "Prefer": "resolution=merge-duplicates" },
+        body: { tmdb_id: tmdbId, season: season, episode: ep }
+      });
+      episodes.push({ tmdb_id: tmdbId, season: season, episode: ep, watched_at: new Date().toISOString() });
+    }else{
+      await sb("showtime_episodes?tmdb_id=eq." + tmdbId + "&season=eq." + season + "&episode=eq." + ep, {
+        method: "DELETE"
+      });
+      episodes = episodes.filter(e => !(e.tmdb_id === tmdbId && e.season === season && e.episode === ep));
+    }
+    await syncStatus(tmdbId);
+    renderAll();
+    if(currentDetail && currentDetail.tmdb_id === tmdbId) refreshDetailChecks();
+  }catch(e){
+    console.error(e);
+    toast("Errore di salvataggio");
+  }
+}
+
+async function markSeason(tmdbId, season, count){
+  const it = items.find(i => i.tmdb_id === tmdbId && i.media_type === "tv");
+  if(!it) return;
+  const set = watchedSet(tmdbId);
+  const rows = [];
+  for(let e = 1; e <= count; e++){
+    if(!set.has(season + "-" + e)) rows.push({ tmdb_id: tmdbId, season: season, episode: e });
+  }
+  if(rows.length === 0){ toast("Stagione gi&agrave; vista"); return; }
+  try{
+    await sb("showtime_episodes?on_conflict=tmdb_id,season,episode", {
+      method: "POST",
+      headers: { "Prefer": "resolution=merge-duplicates" },
+      body: rows
+    });
+    for(const r of rows) episodes.push(Object.assign({ watched_at: new Date().toISOString() }, r));
+    await syncStatus(tmdbId);
+    renderAll();
+    refreshDetailChecks();
+    toast("Stagione " + season + " segnata come vista");
+  }catch(e){
+    console.error(e);
+    toast("Errore di salvataggio");
+  }
+}
+
+async function syncStatus(tmdbId){
+  const it = items.find(i => i.tmdb_id === tmdbId && i.media_type === "tv");
+  if(!it || it.status === "dropped") return;
+  const st = statusOf(it);
+  if(st !== it.status){
+    it.status = st;
+    await sb("showtime_items?tmdb_id=eq." + tmdbId + "&media_type=eq.tv", {
+      method: "PATCH",
+      body: { status: st }
+    });
+  }
+}
+
+/* ================= MOVIE ACTIONS ================= */
+async function markMovie(tmdbId, watched){
+  const it = items.find(i => i.tmdb_id === tmdbId && i.media_type === "movie");
+  if(!it) return;
+  it.status = watched ? "completed" : "planned";
+  try{
+    await sb("showtime_items?tmdb_id=eq." + tmdbId + "&media_type=eq.movie", {
+      method: "PATCH",
+      body: { status: it.status }
+    });
+    renderAll();
+    toast(watched ? "Film segnato come visto" : "Riportato in Da vedere");
+  }catch(e){
+    console.error(e);
+    toast("Errore di salvataggio");
+  }
+}
+
+/* ================= RATING ================= */
+async function setRating(n){
+  if(!currentDetail) return;
+  currentDetail.rating = (currentDetail.rating === n) ? null : n;
+  try{
+    await sb("showtime_items?tmdb_id=eq." + currentDetail.tmdb_id + "&media_type=eq." + currentDetail.media_type, {
+      method: "PATCH",
+      body: { rating: currentDetail.rating }
+    });
+    renderDetailHead();
+    renderAll();
+  }catch(e){ console.error(e); toast("Errore di salvataggio"); }
+}
+
+/* ================= DETAIL ================= */
+function openDetail(tmdbId, type){
+  const it = items.find(i => i.tmdb_id === tmdbId && i.media_type === type);
+  if(!it) return;
+  currentDetail = it;
+  const ov = $("#detail");
+  ov.classList.add("open");
+  document.body.style.overflow = "hidden";
+  renderDetail();
+}
+function closeDetail(){
+  currentDetail = null;
+  $("#detail").classList.remove("open");
+  document.body.style.overflow = "";
+}
+
+function renderDetail(){
+  const it = currentDetail;
+  const ov = $("#detail");
+  const bd = it.backdrop_path
+    ? '<img class="backdrop" src="' + IMG_BIG + it.backdrop_path + '" alt="">'
+    : '<div class="backdrop"></div>';
+  let seasonsHtml = "";
+  if(it.media_type === "tv"){
+    for(const s of (it.seasons_json || [])){
+      seasonsHtml +=
+        '<div class="season" id="season-' + s.n + '">' +
+          '<div class="season-head" onclick="toggleSeason(' + s.n + ',' + s.c + ')">' +
+            '<span>Stagione ' + s.n + '<span class="cnt" id="scount-' + s.n + '"></span></span>' +
+            '<button class="season-all" onclick="event.stopPropagation();markSeason(' + it.tmdb_id + ',' + s.n + ',' + s.c + ')">Tutta vista</button>' +
+          '</div>' +
+          '<div id="sbody-' + s.n + '"></div>' +
+        '</div>';
+    }
+  }
+  ov.innerHTML =
+    '<div class="detail-head">' + bd +
+      '<div class="detail-top">' +
+        '<button class="circle-btn" onclick="closeDetail()" aria-label="Chiudi">&#10005;</button>' +
+        '<button class="circle-btn" onclick="refreshFromTmdb()" aria-label="Aggiorna" title="Aggiorna da TMDB">&#8635;</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="detail-body">' +
+      '<div id="detailHead"></div>' +
+      seasonsHtml +
+    '</div>';
+  renderDetailHead();
+  updateSeasonCounts();
+}
+
+function renderDetailHead(){
+  const it = currentDetail;
+  if(!it) return;
+  const box = $("#detailHead");
+  if(!box) return;
+  const p = progressOf(it);
+  const badge = it.is_anime ? '<span class="badge">ANIME</span>' : "";
+  let sub;
+  if(it.media_type === "tv"){
+    sub = yearOf(it.first_air_date) + " &middot; " + p.watched + " / " + p.total + " episodi";
+  }else{
+    sub = yearOf(it.first_air_date) + (it.runtime ? " &middot; " + it.runtime + " min" : "");
+  }
+  let starsHtml = '<div class="stars">';
+  for(let n = 1; n <= 5; n++){
+    starsHtml += '<span class="' + (it.rating >= n ? "on" : "") + '" onclick="setRating(' + n + ')">&#9733;</span>';
+  }
+  starsHtml += '</div>';
+  let actions = '<div class="detail-actions">';
+  if(it.media_type === "movie"){
+    actions += it.status === "completed"
+      ? '<button class="action" onclick="markMovie(' + it.tmdb_id + ',false)">Segna non visto</button>'
+      : '<button class="action gold" onclick="markMovie(' + it.tmdb_id + ',true)">&#10003; Segna visto</button>';
+  }else{
+    if(it.status === "dropped"){
+      actions += '<button class="action" onclick="setDropped(false)">Riprendi la serie</button>';
+    }else{
+      actions += '<button class="action" onclick="setDropped(true)">Abbandona</button>';
+    }
+  }
+  actions += '<button class="action red" onclick="removeItem()">Rimuovi</button></div>';
+  box.innerHTML =
+    '<div class="detail-title">' + esc(it.title) + badge + '</div>' +
+    '<div class="detail-sub">' + sub + '</div>' +
+    starsHtml + actions;
+}
+
+async function setDropped(dropped){
+  const it = currentDetail;
+  if(!it) return;
+  it.status = dropped ? "dropped" : statusOfRecompute(it);
+  try{
+    await sb("showtime_items?tmdb_id=eq." + it.tmdb_id + "&media_type=eq.tv", {
+      method: "PATCH", body: { status: it.status }
+    });
+    renderDetailHead();
+    renderAll();
+    toast(dropped ? "Serie abbandonata" : "Serie ripresa");
+  }catch(e){ console.error(e); toast("Errore di salvataggio"); }
+}
+function statusOfRecompute(it){
+  const p = progressOf(it);
+  if(p.total > 0 && p.watched >= p.total) return "completed";
+  if(p.watched > 0) return "watching";
+  return "planned";
+}
+
+async function removeItem(){
+  const it = currentDetail;
+  if(!it) return;
+  if(!confirm("Rimuovere " + it.title + " dalla libreria? Anche i progressi verranno cancellati.")) return;
+  try{
+    await sb("showtime_items?tmdb_id=eq." + it.tmdb_id + "&media_type=eq." + it.media_type, { method: "DELETE" });
+    if(it.media_type === "tv"){
+      await sb("showtime_episodes?tmdb_id=eq." + it.tmdb_id, { method: "DELETE" });
+      episodes = episodes.filter(e => e.tmdb_id !== it.tmdb_id);
+    }
+    items = items.filter(i => !(i.tmdb_id === it.tmdb_id && i.media_type === it.media_type));
+    closeDetail();
+    renderAll();
+    toast("Rimosso dalla libreria");
+  }catch(e){ console.error(e); toast("Errore, riprova"); }
+}
+
+async function refreshFromTmdb(){
+  const it = currentDetail;
+  if(!it) return;
+  try{
+    const d = await tmdb("/" + it.media_type + "/" + it.tmdb_id, {});
+    const patch = {};
+    if(it.media_type === "tv"){
+      patch.seasons_json = (d.seasons || [])
+        .filter(s => s.season_number > 0 && s.episode_count > 0)
+        .map(s => ({ n: s.season_number, c: s.episode_count }));
+      patch.runtime = (d.episode_run_time && d.episode_run_time[0]) || it.runtime;
+      patch.poster_path = d.poster_path;
+      patch.backdrop_path = d.backdrop_path;
+      it.seasons_json = patch.seasons_json;
+    }else{
+      patch.runtime = d.runtime || it.runtime;
+      patch.poster_path = d.poster_path;
+      patch.backdrop_path = d.backdrop_path;
+    }
+    it.runtime = patch.runtime;
+    it.poster_path = patch.poster_path;
+    it.backdrop_path = patch.backdrop_path;
+    await sb("showtime_items?tmdb_id=eq." + it.tmdb_id + "&media_type=eq." + it.media_type, {
+      method: "PATCH", body: patch
+    });
+    Object.keys(seasonCache).forEach(k => { if(k.startsWith(it.tmdb_id + "-")) delete seasonCache[k]; });
+    renderDetail();
+    renderAll();
+    toast("Dati aggiornati da TMDB");
+  }catch(e){ console.error(e); toast("Errore di aggiornamento"); }
+}
+
+/* ---- seasons in detail ---- */
+async function toggleSeason(season, count){
+  const it = currentDetail;
+  if(!it) return;
+  const body = $("#sbody-" + season);
+  if(!body) return;
+  if(body.innerHTML !== ""){ body.innerHTML = ""; return; }
+  body.innerHTML = '<div class="loading-eps">Carico gli episodi...</div>';
+  try{
+    const key = it.tmdb_id + "-" + season;
+    if(!seasonCache[key]){
+      const d = await tmdb("/tv/" + it.tmdb_id + "/season/" + season, {});
+      seasonCache[key] = d.episodes || [];
+    }
+    renderSeasonBody(season, count);
+  }catch(e){
+    console.error(e);
+    body.innerHTML = '<div class="loading-eps">Errore nel caricamento episodi.</div>';
+  }
+}
+
+function renderSeasonBody(season, count){
+  const it = currentDetail;
+  if(!it) return;
+  const body = $("#sbody-" + season);
+  if(!body) return;
+  const eps = seasonCache[it.tmdb_id + "-" + season] || [];
+  const set = watchedSet(it.tmdb_id);
+  let html = "";
+  const max = Math.max(count, eps.length);
+  for(let e = 1; e <= max; e++){
+    const meta = eps.find(x => x.episode_number === e);
+    const name = meta ? meta.name : "Episodio " + e;
+    const date = meta && meta.air_date ? meta.air_date.split("-").reverse().join("/") : "";
+    const on = set.has(season + "-" + e);
+    html += '<div class="ep">' +
+      '<span class="num">E' + e + '</span>' +
+      '<span class="name">' + esc(name) + '</span>' +
+      '<span class="date">' + date + '</span>' +
+      '<button class="ep-check ' + (on ? "on" : "") + '" onclick="setEpisode(' + it.tmdb_id + ',' + season + ',' + e + ',' + (on ? "false" : "true") + ')" aria-label="Episodio ' + e + '">&#10003;</button>' +
+    '</div>';
+  }
+  body.innerHTML = html;
+}
+
+function refreshDetailChecks(){
+  const it = currentDetail;
+  if(!it || it.media_type !== "tv") return;
+  for(const s of (it.seasons_json || [])){
+    const body = $("#sbody-" + s.n);
+    if(body && body.innerHTML !== "" && !body.querySelector(".loading-eps")){
+      renderSeasonBody(s.n, s.c);
+    }
+  }
+  renderDetailHead();
+  updateSeasonCounts();
+}
+
+function updateSeasonCounts(){
+  const it = currentDetail;
+  if(!it || it.media_type !== "tv") return;
+  const set = watchedSet(it.tmdb_id);
+  for(const s of (it.seasons_json || [])){
+    let w = 0;
+    for(let e = 1; e <= s.c; e++) if(set.has(s.n + "-" + e)) w++;
+    const el = $("#scount-" + s.n);
+    if(el) el.textContent = w + " / " + s.c;
+  }
+}
+
+/* ================= NAV / UI ================= */
+function goView(name){
+  document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+  $("#view-" + name).classList.add("active");
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.v === name));
+  if(name === "cerca") setTimeout(()=>$("#searchInput").focus(), 100);
+}
+document.querySelectorAll("nav button").forEach(b => {
+  b.addEventListener("click", () => goView(b.dataset.v));
+});
+$("#serieChips").addEventListener("click", e => {
+  const c = e.target.closest(".chip");
+  if(!c) return;
+  serieFilter = c.dataset.f;
+  document.querySelectorAll("#serieChips .chip").forEach(x => x.classList.toggle("active", x === c));
+  renderSerie();
+});
+$("#animeChips").addEventListener("click", e => {
+  const c = e.target.closest(".chip");
+  if(!c) return;
+  animeFilter = c.dataset.f;
+  document.querySelectorAll("#animeChips .chip").forEach(x => x.classList.toggle("active", x === c));
+  renderAnime();
+});
+$("#filmChips").addEventListener("click", e => {
+  const c = e.target.closest(".chip");
+  if(!c) return;
+  filmFilter = c.dataset.f;
+  document.querySelectorAll("#filmChips .chip").forEach(x => x.classList.toggle("active", x === c));
+  renderFilm();
+});
+$("#btnSearch").addEventListener("click", doSearch);
+$("#searchInput").addEventListener("keydown", e => { if(e.key === "Enter") doSearch(); });
+
+/* ================= SETTINGS ================= */
+function openSettings(){
+  $("#tmdbKeyInput").value = tmdbKey();
+  $("#settingsModal").classList.add("open");
+}
+$("#btnSettings").addEventListener("click", openSettings);
+$("#settingsModal").addEventListener("click", e => {
+  if(e.target === $("#settingsModal")) $("#settingsModal").classList.remove("open");
+});
+$("#btnSaveKey").addEventListener("click", async () => {
+  const k = $("#tmdbKeyInput").value.trim();
+  localStorage.setItem("tmdb_key", k);
+  $("#settingsModal").classList.remove("open");
+  if(k){
+    try{
+      await tmdb("/configuration", {});
+      toast("Chiave TMDB salvata e funzionante");
+    }catch(e){
+      toast("Chiave salvata ma non sembra valida");
+    }
+  }
+});
+
+/* ================= INIT ================= */
+if("serviceWorker" in navigator){
+  navigator.serviceWorker.register("sw.js").catch(()=>{});
+}
+loadLibrary();
+if(!tmdbKey()){
+  setTimeout(openSettings, 600);
+}
+</script>
+</body>
+</html>
