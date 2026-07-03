@@ -279,7 +279,16 @@ async function runRepair(){
       const T = item.seasons_json.reduce((a, x) => a + x.c, 0);
       const target = Math.min(N, T);
       const have = (epsByShow[tv.id] || new Set());
-      if(have.size >= target) continue;   // gia' allineata o meglio
+
+      // conta solo gli episodi VALIDI nella struttura TMDB:
+      // le righe importate con numerazione TV Time che non esistono in TMDB non contano
+      const valid = new Set();
+      for(const st of item.seasons_json){
+        for(let e = 1; e <= st.c; e++) valid.add(st.n + "-" + e);
+      }
+      let haveValid = 0;
+      for(const k of have){ if(valid.has(k)) haveValid++; }
+      if(haveValid >= target) continue;   // davvero allineata
 
       const want = firstNAbsolute(item.seasons_json, target);
       const rows = [];
@@ -295,7 +304,7 @@ async function runRepair(){
         });
       }
       // se ora e' completa, aggiorna lo stato
-      if(have.size + rows.length >= T && T > 0){
+      if(target >= T && T > 0){
         await sb("showtime_items?tmdb_id=eq." + tv.id + "&media_type=eq.tv", {
           method: "PATCH", body: { status: "completed" }
         });
@@ -307,7 +316,7 @@ async function runRepair(){
       fixed++; added += rows.length;
       $("#cFixed").textContent = fixed;
       $("#cEps").textContent = added;
-      log("\u2713 " + (item.title || src.name) + ": +" + rows.length + " episodi (TV Time: " + N + ", TMDB: " + T + ")");
+      log("\u2713 " + (item.title || src.name) + ": +" + rows.length + " episodi (visti validi prima: " + haveValid + ", TV Time: " + N + ", TMDB: " + T + ")");
       await sleep(60);
     }catch(err){
       console.error(err);
