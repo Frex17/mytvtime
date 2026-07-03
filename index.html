@@ -84,6 +84,20 @@ h2.section{
 }
 h2.section:first-child{margin-top:2px}
 
+/* ---------- top tabs (stile TV Time) ---------- */
+.toptabs{
+  display:flex;margin:-16px -16px 14px;padding:0 6px;
+  border-bottom:1px solid var(--line);
+  position:sticky;top:calc(53px + env(safe-area-inset-top));z-index:30;
+  background:rgba(16,14,11,.94);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+}
+.toptabs button{
+  flex:1;padding:13px 4px 11px;text-transform:uppercase;letter-spacing:1.3px;
+  font-size:11.5px;font-weight:700;color:var(--muted);
+  border-bottom:2px solid transparent;transition:color .2s;
+}
+.toptabs button.active{color:var(--cream);border-bottom-color:var(--gold)}
+
 /* ---------- chips ---------- */
 .chips{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 10px;scrollbar-width:none}
 .chips::-webkit-scrollbar{display:none}
@@ -227,6 +241,19 @@ h2.section:first-child{margin-top:2px}
 .loading-eps{padding:14px;color:var(--muted);font-size:13px;border-top:1px solid var(--line)}
 
 /* ---------- stats ---------- */
+.hero-stat{
+  background:var(--surface);border:1px solid var(--line);border-radius:16px;
+  padding:18px 14px;margin-bottom:12px;text-align:center;
+}
+.hero-stat .hl{
+  font-size:11px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;
+  margin-bottom:10px;font-weight:700;
+}
+.hero-stat .cols{display:flex}
+.hero-stat .col{flex:1}
+.hero-stat .col .n{font-family:var(--serif);font-weight:700;font-size:44px;color:var(--gold);line-height:1}
+.hero-stat .col .l{font-size:11px;color:var(--muted);margin-top:4px;letter-spacing:.5px;text-transform:uppercase}
+
 .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .stat{
   background:var(--surface);border:1px solid var(--line);border-radius:14px;
@@ -292,16 +319,30 @@ body.offline #offlineBar{display:block}
 
   <!-- ============ SERIE ============ -->
   <section class="view active" id="view-serie">
+    <div class="toptabs" id="serieTabs">
+      <button class="active" data-t="next">Da vedere</button>
+      <button data-t="up">In arrivo</button>
+      <button data-t="done">Completate</button>
+    </div>
     <div id="serieList"></div>
   </section>
 
   <!-- ============ ANIME ============ -->
   <section class="view" id="view-anime">
+    <div class="toptabs" id="animeTabs">
+      <button class="active" data-t="next">Da vedere</button>
+      <button data-t="up">In arrivo</button>
+      <button data-t="done">Completati</button>
+    </div>
     <div id="animeList"></div>
   </section>
 
   <!-- ============ FILM ============ -->
   <section class="view" id="view-film">
+    <div class="toptabs" id="filmTabs">
+      <button class="active" data-t="towatch">Da vedere</button>
+      <button data-t="seen">Visti</button>
+    </div>
     <div id="filmList"></div>
   </section>
 
@@ -409,11 +450,22 @@ async function sb(path, opts){
   return ct.includes("json") ? res.json() : null;
 }
 
+async function sbAll(path){
+  const out = [];
+  const page = 1000;
+  for(let off = 0; ; off += page){
+    const rows = await sb(path, { headers: { "Range-Unit": "items", "Range": off + "-" + (off + page - 1) } });
+    if(rows && rows.length) out.push.apply(out, rows);
+    if(!rows || rows.length < page) break;
+  }
+  return out;
+}
+
 async function loadLibrary(){
   try{
     const r = await Promise.all([
-      sb("showtime_items?select=*&order=added_at.desc"),
-      sb("showtime_episodes?select=tmdb_id,season,episode")
+      sbAll("showtime_items?select=*&order=added_at.desc"),
+      sbAll("showtime_episodes?select=tmdb_id,season,episode&order=id.asc")
     ]);
     items = r[0] || [];
     episodes = r[1] || [];
@@ -534,48 +586,51 @@ function categorize(it){
   return { sec: "next", p: p };
 }
 
-function renderSerie(){ renderTvList("#serieList", false); }
-function renderAnime(){ renderTvList("#animeList", true); }
+let serieTab = "next", animeTab = "next", filmTab = "towatch";
 
-function renderTvList(target, animeMode){
+function renderSerie(){ renderTvList("#serieList", false, serieTab); }
+function renderAnime(){ renderTvList("#animeList", true, animeTab); }
+
+function renderTvList(target, animeMode, tab){
   const list = $(target);
   const shows = items.filter(i => i.media_type === "tv" && !!i.is_anime === animeMode);
+  const word = animeMode ? "anime" : "serie";
+  const icon = animeMode ? "&#9961;&#65039;" : "&#128250;";
   if(shows.length === 0){
-    const word = animeMode ? "anime" : "serie";
-    const icon = animeMode ? "&#9961;&#65039;" : "&#128250;";
     list.innerHTML = '<div class="empty"><div class="big">' + icon + '</div>Nessun ' + word +
       ' in libreria.<br>Vai su Cerca e aggiungi!' +
       '<br><button onclick="goView(\u0027cerca\u0027)">Cerca</button></div>';
     return;
   }
-  const next = [], up = [], done = [];
+  const bucket = [];
   for(const it of shows){
     const c = categorize(it);
-    if(c.sec === "next") next.push({ it: it, c: c });
-    else if(c.sec === "up") up.push({ it: it, c: c });
-    else done.push({ it: it, c: c });
+    if(c.sec === tab) bucket.push({ it: it, c: c });
   }
-  next.sort((a, b) => a.it.title.localeCompare(b.it.title));
-  up.sort((a, b) => {
-    if(a.c.date && b.c.date) return a.c.date < b.c.date ? -1 : 1;
-    if(a.c.date) return -1;
-    if(b.c.date) return 1;
-    return a.it.title.localeCompare(b.it.title);
-  });
-  done.sort((a, b) => a.it.title.localeCompare(b.it.title));
-
+  if(tab === "up"){
+    bucket.sort((a, b) => {
+      if(a.c.date && b.c.date) return a.c.date < b.c.date ? -1 : 1;
+      if(a.c.date) return -1;
+      if(b.c.date) return 1;
+      return a.it.title.localeCompare(b.it.title);
+    });
+  } else {
+    bucket.sort((a, b) => a.it.title.localeCompare(b.it.title));
+  }
+  if(bucket.length === 0){
+    const msgs = {
+      next: "Niente da vedere qui: sei in pari con tutto! &#127881;",
+      up: "Nessun episodio in arrivo al momento.",
+      done: "Ancora niente di completato qui."
+    };
+    list.innerHTML = '<div class="empty"><div class="big">' + icon + '</div>' + msgs[tab] + '</div>';
+    return;
+  }
   let html = "";
-  if(next.length){
-    html += '<h2 class="section">Da vedere <span class="sec-cnt">(' + next.length + ')</span></h2>';
-    for(const x of next) html += cardNext(x.it, x.c.p);
-  }
-  if(up.length){
-    html += '<h2 class="section">In arrivo <span class="sec-cnt">(' + up.length + ')</span></h2>';
-    for(const x of up) html += cardUpcoming(x.it, x.c);
-  }
-  if(done.length){
-    html += '<h2 class="section">Completate <span class="sec-cnt">(' + done.length + ')</span></h2>';
-    for(const x of done) html += cardDone(x.it, x.c);
+  for(const x of bucket){
+    if(tab === "next") html += cardNext(x.it, x.c.p);
+    else if(tab === "up") html += cardUpcoming(x.it, x.c);
+    else html += cardDone(x.it, x.c);
   }
   list.innerHTML = html;
 }
@@ -639,17 +694,16 @@ function renderFilm(){
       '<br><button onclick="goView(\u0027cerca\u0027)">Cerca un film</button></div>';
     return;
   }
-  const towatch = movies.filter(m => statusOf(m) !== "completed").sort((a,b)=>a.title.localeCompare(b.title));
-  const seen = movies.filter(m => statusOf(m) === "completed").sort((a,b)=>a.title.localeCompare(b.title));
+  const seen = filmTab === "seen";
+  const bucket = movies.filter(m => (statusOf(m) === "completed") === seen)
+    .sort((a, b) => a.title.localeCompare(b.title));
+  if(bucket.length === 0){
+    list.innerHTML = '<div class="empty"><div class="big">&#127916;</div>' +
+      (seen ? "Nessun film visto... ancora." : "Nessun film in lista: tutto visto! &#127881;") + '</div>';
+    return;
+  }
   let html = "";
-  if(towatch.length){
-    html += '<h2 class="section">Da vedere <span class="sec-cnt">(' + towatch.length + ')</span></h2>';
-    for(const it of towatch) html += movieCard(it, false);
-  }
-  if(seen.length){
-    html += '<h2 class="section">Visti <span class="sec-cnt">(' + seen.length + ')</span></h2>';
-    for(const it of seen) html += movieCard(it, true);
-  }
+  for(const it of bucket) html += movieCard(it, seen);
   list.innerHTML = html;
 }
 function movieCard(it, seen){
@@ -667,29 +721,50 @@ function movieCard(it, seen){
 }
 
 /* ================= RENDER: STATS ================= */
+function fmtN(n){ return n.toLocaleString("it-IT"); }
 function renderStats(){
-  let epCount = 0, epMinutes = 0, filmCount = 0, filmMinutes = 0, completedSeries = 0, animeCount = 0;
+  let epS = 0, epA = 0, minS = 0, minA = 0;
+  let serieViste = 0, animeVisti = 0, serieComplete = 0, animeCompleti = 0;
+  let film = 0, minF = 0;
   for(const it of items){
     if(it.media_type === "tv"){
       const p = progressOf(it);
-      epCount += p.watched;
-      epMinutes += p.watched * (it.runtime || 40);
-      if(statusOf(it) === "completed") completedSeries++;
-      if(it.is_anime) animeCount++;
+      const rt = it.runtime || (it.is_anime ? 24 : 40);
+      if(it.is_anime){
+        epA += p.watched; minA += p.watched * rt;
+        if(p.watched > 0) animeVisti++;
+        if(statusOf(it) === "completed") animeCompleti++;
+      }else{
+        epS += p.watched; minS += p.watched * rt;
+        if(p.watched > 0) serieViste++;
+        if(statusOf(it) === "completed") serieComplete++;
+      }
     }else if(statusOf(it) === "completed"){
-      filmCount++;
-      filmMinutes += it.runtime || 110;
+      film++; minF += it.runtime || 110;
     }
   }
-  const totalHours = Math.round((epMinutes + filmMinutes) / 60);
-  const days = Math.floor(totalHours / 24);
+  const totalMin = minS + minA + minF;
+  const totDays = totalMin / 1440;
+  const anni = Math.floor(totDays / 365.25);
+  let rest = totDays - anni * 365.25;
+  const mesi = Math.floor(rest / 30.44);
+  const giorni = Math.floor(rest - mesi * 30.44);
+
   $("#statGrid").innerHTML =
-    '<div class="stat"><div class="n">' + epCount + '</div><div class="l">Episodi visti</div></div>' +
-    '<div class="stat"><div class="n">' + filmCount + '</div><div class="l">Film visti</div></div>' +
-    '<div class="stat"><div class="n">' + completedSeries + '</div><div class="l">Serie completate</div></div>' +
-    '<div class="stat"><div class="n">' + animeCount + '</div><div class="l">Anime in libreria</div></div>' +
-    '<div class="stat"><div class="n">' + totalHours + '</div><div class="l">Ore di visione</div></div>' +
-    '<div class="stat"><div class="n">' + days + '</div><div class="l">Giorni di visione</div></div>';
+    '<div class="hero-stat" style="grid-column:1 / -1">' +
+      '<div class="hl">Tempo di visione</div>' +
+      '<div class="cols">' +
+        '<div class="col"><div class="n">' + anni + '</div><div class="l">Anni</div></div>' +
+        '<div class="col"><div class="n">' + mesi + '</div><div class="l">Mesi</div></div>' +
+        '<div class="col"><div class="n">' + giorni + '</div><div class="l">Giorni</div></div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="stat"><div class="n">' + fmtN(epS) + '</div><div class="l">Puntate viste</div></div>' +
+    '<div class="stat"><div class="n">' + fmtN(epA) + '</div><div class="l">Puntate anime viste</div></div>' +
+    '<div class="stat"><div class="n">' + fmtN(serieViste) + '</div><div class="l">Serie viste</div></div>' +
+    '<div class="stat"><div class="n">' + fmtN(animeVisti) + '</div><div class="l">Anime visti</div></div>' +
+    '<div class="stat"><div class="n">' + fmtN(film) + '</div><div class="l">Film visti</div></div>' +
+    '<div class="stat"><div class="n">' + fmtN(Math.round(totalMin / 60)) + '</div><div class="l">Ore totali</div></div>';
 }
 
 function renderAll(){
@@ -1166,6 +1241,17 @@ function goView(name){
 document.querySelectorAll("nav button").forEach(b => {
   b.addEventListener("click", () => goView(b.dataset.v));
 });
+function bindTabs(id, setter){
+  $(id).addEventListener("click", e => {
+    const b = e.target.closest("button");
+    if(!b) return;
+    document.querySelectorAll(id + " button").forEach(x => x.classList.toggle("active", x === b));
+    setter(b.dataset.t);
+  });
+}
+bindTabs("#serieTabs", t => { serieTab = t; renderSerie(); });
+bindTabs("#animeTabs", t => { animeTab = t; renderAnime(); });
+bindTabs("#filmTabs", t => { filmTab = t; renderFilm(); });
 $("#btnSearch").addEventListener("click", doSearch);
 $("#searchInput").addEventListener("keydown", e => { if(e.key === "Enter") doSearch(); });
 
