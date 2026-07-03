@@ -38,6 +38,36 @@ button{font-family:var(--sans);cursor:pointer;border:none;background:none;color:
 input{font-family:var(--sans)}
 img{display:block}
 
+/* ---------- tema chiaro ---------- */
+body.light{
+  --bg:#F3EDE0;--surface:#FFFBF2;--surface-2:#EDE4D0;--line:#DED2B8;
+  --cream:#241E16;--muted:#8A7F6B;
+}
+body.light header{background:rgba(243,237,224,.92)}
+body.light .toptabs{background:rgba(243,237,224,.94)}
+body.light nav{
+  background:rgba(255,251,242,.6);
+  border-color:rgba(36,30,22,.10);
+  box-shadow:0 10px 34px rgba(80,65,35,.22), inset 0 1px 0 rgba(255,255,255,.5);
+}
+body.light .circle-btn{background:rgba(243,237,224,.8);color:#241E16}
+
+/* ---------- menu a tendina ---------- */
+#menu{
+  position:fixed;top:calc(56px + env(safe-area-inset-top));right:12px;z-index:80;
+  background:var(--surface);border:1px solid var(--line);border-radius:14px;
+  box-shadow:0 14px 34px rgba(0,0,0,.45);min-width:238px;display:none;overflow:hidden;
+}
+#menu.open{display:block}
+#menu button{
+  display:flex;width:100%;text-align:left;padding:13px 16px;font-size:14px;
+  gap:10px;align-items:center;border-bottom:1px solid var(--line);color:var(--cream);
+}
+#menu button:active{background:var(--surface-2)}
+#menu .mver{
+  padding:10px 16px;font-size:11px;color:var(--muted);text-align:center;letter-spacing:.5px;
+}
+
 /* ---------- header ---------- */
 header{
   position:sticky;top:0;z-index:40;background:rgba(16,14,11,.92);
@@ -127,6 +157,9 @@ h2.section:first-child{margin-top:2px}
 }
 .progress{height:5px;background:var(--surface-2);border-radius:99px;margin-top:8px;overflow:hidden}
 .progress > div{height:100%;background:var(--gold);border-radius:99px;transition:width .3s}
+.progress > div.up{background:#4C9E5F}
+.progress > div.done{background:#8B6FC0}
+.progress > div.drop{background:var(--danger)}
 .next-line{display:flex;align-items:center;gap:8px;margin-top:7px}
 .next-pill{
   font-size:11px;font-weight:700;color:var(--gold-light);background:var(--surface-2);
@@ -409,6 +442,14 @@ body.offline #offlineBar{display:block}
     <input type="text" id="tmdbKeyInput" placeholder="Chiave API TMDB" autocomplete="off">
     <button class="save" id="btnSaveKey">Salva</button>
   </div>
+</div>
+
+<div id="menu">
+  <button id="mKey">&#128273; Chiave API TMDB</button>
+  <button id="mTheme">&#9728;&#65039; Tema chiaro</button>
+  <button id="mRefresh">&#8635; Aggiorna programmazione</button>
+  <button id="mExport">&#128190; Esporta backup</button>
+  <div class="mver">ShowTime v7 &middot; dati di TMDB</div>
 </div>
 
 <div id="toast"></div>
@@ -731,7 +772,7 @@ function cardUpcoming(it, c){
     '<div class="card-body">' +
       '<div class="card-title">' + esc(it.title) + '</div>' +
       '<div class="card-sub">' + sub + '</div>' +
-      '<div class="progress"><div style="width:' + pct + '%"></div></div>' +
+      '<div class="progress"><div class="up" style="width:' + pct + '%"></div></div>' +
     '</div>' + airPill(c.date) + '</div>');
 }
 
@@ -739,12 +780,14 @@ function cardDone(it, c){
   const p = c.p;
   const stars = it.rating ? '<div class="stars-mini">' + "&#9733;".repeat(it.rating) + '</div>' : "";
   const tag = c.dropped ? '<span class="tag-drop">ABBANDONATA</span>' : "";
+  const pct = p.total ? Math.round(p.watched / p.total * 100) : 0;
   return swipeWrap('<div class="card swipeable" data-act-left="prev:' + it.tmdb_id + '" onclick="openDetail(' + it.tmdb_id + ',\u0027tv\u0027)">' +
     posterOf(it, "&#127909;") +
     '<div class="card-body">' +
       '<div class="card-title">' + esc(it.title) + tag + '</div>' +
       '<div class="card-sub">' + p.watched + ' / ' + p.total + ' episodi &middot; ' + yearOf(it.first_air_date) + '</div>' +
       stars +
+      '<div class="progress"><div class="' + (c.dropped ? "drop" : "done") + '" style="width:' + pct + '%"></div></div>' +
     '</div>' +
   '</div>');
 }
@@ -772,16 +815,13 @@ function renderFilm(){
 }
 function movieCard(it, seen){
   const stars = it.rating ? '<div class="stars-mini">' + "&#9733;".repeat(it.rating) + '</div>' : "";
-  const btn = seen
-    ? '<button class="check-btn done" onclick="event.stopPropagation();markMovie(' + it.tmdb_id + ',false)" aria-label="Segna non visto">&#10003;</button>'
-    : '<button class="check-btn" onclick="event.stopPropagation();markMovie(' + it.tmdb_id + ',true)" aria-label="Segna visto">&#10003;</button>';
   return swipeWrap('<div class="card swipeable" data-act="mov:' + it.tmdb_id + ':1" data-act-left="mov:' + it.tmdb_id + ':0" onclick="openDetail(' + it.tmdb_id + ',\u0027movie\u0027)">' +
     posterOf(it, "&#127916;") +
     '<div class="card-body">' +
       '<div class="card-title">' + esc(it.title) + '</div>' +
       '<div class="card-sub">' + yearOf(it.first_air_date) + (it.runtime ? ' &middot; ' + it.runtime + ' min' : '') + '</div>' +
       stars +
-    '</div>' + btn + '</div>');
+    '</div></div>');
 }
 
 /* ================= RENDER: STATS ================= */
@@ -1446,7 +1486,47 @@ function openSettings(){
   $("#tmdbKeyInput").value = tmdbKey();
   $("#settingsModal").classList.add("open");
 }
-$("#btnSettings").addEventListener("click", openSettings);
+
+/* ---- menu a tendina ---- */
+function applyTheme(){
+  const light = localStorage.getItem("theme") === "light";
+  document.body.classList.toggle("light", light);
+  $("#mTheme").innerHTML = light ? "&#127769; Tema scuro" : "&#9728;&#65039; Tema chiaro";
+}
+$("#btnSettings").addEventListener("click", e => {
+  e.stopPropagation();
+  $("#menu").classList.toggle("open");
+});
+document.addEventListener("click", e => {
+  if(!e.target.closest("#menu")) $("#menu").classList.remove("open");
+});
+$("#mKey").addEventListener("click", () => {
+  $("#menu").classList.remove("open");
+  openSettings();
+});
+$("#mTheme").addEventListener("click", () => {
+  localStorage.setItem("theme", document.body.classList.contains("light") ? "dark" : "light");
+  applyTheme();
+});
+$("#mRefresh").addEventListener("click", () => {
+  $("#menu").classList.remove("open");
+  if(updaterRunning){ toast("Aggiornamento già in corso"); return; }
+  if(!requireOnline()) return;
+  toast("Aggiorno la programmazione...");
+  updateSchedules().then(() => toast("Programmazione aggiornata"));
+});
+$("#mExport").addEventListener("click", () => {
+  $("#menu").classList.remove("open");
+  const data = { app: "ShowTime", exported_at: new Date().toISOString(), items: items, episodes: episodes };
+  const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "showtime-backup-" + todayStr() + ".json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast("Backup scaricato");
+});
+applyTheme();
 $("#settingsModal").addEventListener("click", e => {
   if(e.target === $("#settingsModal")) $("#settingsModal").classList.remove("open");
 });
