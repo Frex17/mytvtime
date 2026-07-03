@@ -626,6 +626,16 @@ function detectAnime(d){
   return isAnimation && eastern;
 }
 
+function animeDoubtFrom(d, isAnime){
+  if(isAnime) return false;                                  // gia' anime con prove chiare
+  const genres = d.genres || [];
+  if(genres.length === 0) return true;                       // scheda TMDB senza generi
+  const isAnimation = genres.some(g => g.id === 16);
+  const eastern = (d.origin_country || []).some(c => ["JP","CN","KR","TW"].includes(c)) ||
+                  ["ja","zh","ko"].includes(d.original_language || "");
+  return isAnimation && !eastern;                            // animazione ma origine non chiara
+}
+
 /* ================= PROGRESS LOGIC ================= */
 function watchedSet(tmdbId){
   const set = new Set();
@@ -978,6 +988,7 @@ async function addItem(id, type, btn){
         runtime: (d.episode_run_time && d.episode_run_time[0]) || null,
         seasons_json: seasons,
         is_anime: isAnime,
+        anime_doubt: animeDoubtFrom(d, isAnime),
         status: "planned",
         show_status: d.status || null,
         next_air_date: (d.next_episode_to_air && d.next_episode_to_air.air_date) || null,
@@ -1233,9 +1244,11 @@ function renderDetailHead(){
       : '<button class="action gold" onclick="markMovie(' + it.tmdb_id + ',true)">&#10003; Segna visto</button>';
   }else{
     actions += '<button class="action gold" onclick="markAllSeries()">Tutta vista</button>';
-    actions += it.is_anime
-      ? '<button class="action" onclick="toggleAnime()">&#128250; \u00C8 una serie</button>'
-      : '<button class="action" onclick="toggleAnime()">&#9961;&#65039; \u00C8 un anime</button>';
+    if(it.anime_doubt){
+      actions += it.is_anime
+        ? '<button class="action" onclick="toggleAnime()">&#128250; \u00C8 una serie</button>'
+        : '<button class="action" onclick="toggleAnime()">&#9961;&#65039; \u00C8 un anime</button>';
+    }
     if(it.status === "dropped"){
       actions += '<button class="action" onclick="setDropped(false)">Riprendi la serie</button>';
     }else{
@@ -1254,9 +1267,10 @@ async function toggleAnime(){
   const it = currentDetail;
   if(!it || it.media_type !== "tv") return;
   it.is_anime = !it.is_anime;
+  it.anime_doubt = false;
   try{
     await sb("showtime_items?tmdb_id=eq." + it.tmdb_id + "&media_type=eq.tv", {
-      method: "PATCH", body: { is_anime: it.is_anime }
+      method: "PATCH", body: { is_anime: it.is_anime, anime_doubt: false }
     });
     renderDetailHead();
     renderAll();
@@ -1616,7 +1630,7 @@ $("#mInfo").addEventListener("click", () => {
   let cacheKb = 0;
   try{ cacheKb = Math.round((localStorage.getItem("showtime_cache") || "").length / 1024); }catch(e){}
   $("#infoBody").innerHTML =
-    "<b style=\"color:var(--cream)\">ShowTime v9</b><br>" +
+    "<b style=\"color:var(--cream)\">ShowTime v10</b><br>" +
     "Dati di TMDB &middot; salvataggio su Supabase<br>" +
     "Serie: " + nSerie + " &middot; Anime: " + nAnime + " &middot; Film: " + nFilm + "<br>" +
     "Episodi segnati: " + episodes.length.toLocaleString("it-IT") + "<br>" +
@@ -1660,6 +1674,7 @@ async function updateOne(it){
     poster_path: d.poster_path || it.poster_path,
     is_anime: it.is_anime || detectAnime(d)
   };
+  patch.anime_doubt = (it.anime_doubt === false) ? false : animeDoubtFrom(d, patch.is_anime);
   await sb("showtime_items?tmdb_id=eq." + it.tmdb_id + "&media_type=eq.tv", { method: "PATCH", body: patch });
   Object.assign(it, patch);
 }
