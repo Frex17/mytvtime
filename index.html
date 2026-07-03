@@ -500,6 +500,14 @@ function toast(msg){
 function yearOf(d){ return d ? d.slice(0,4) : ""; }
 const MESI = ["gen","feb","mar","apr","mag","giu","lug","ago","set","ott","nov","dic"];
 function todayStr(){ return new Date().toISOString().slice(0,10); }
+const GIORNI = ["Domenica","Luned\u00EC","Marted\u00EC","Mercoled\u00EC","Gioved\u00EC","Venerd\u00EC","Sabato"];
+function dayLabel(dateStr){
+  const diff = Math.round((new Date(dateStr) - new Date(todayStr())) / 86400000);
+  if(diff <= 0) return "Oggi";
+  if(diff === 1) return "Domani";
+  if(diff <= 6) return GIORNI[new Date(dateStr).getDay()];
+  return "Pi\u00F9 tardi";
+}
 function airPill(dateStr){
   if(!dateStr) return '<div class="air-pill">TBA</div>';
   const t = todayStr();
@@ -688,13 +696,13 @@ function categorize(it){
   if(it.status === "dropped") return { sec: "done", p: p, dropped: true };
   if(!p.next){
     if(ONGOING.includes(it.show_status || "")){
-      const d = (it.next_air_date && it.next_air_date >= todayStr()) ? it.next_air_date : null;
+      const d = (it.next_air_date && it.next_air_date > todayStr()) ? it.next_air_date : null;
       return { sec: "up", p: p, date: d, label: it.next_air_label || "" };
     }
     return { sec: "done", p: p };
   }
   const label = "S" + p.next.s + " E" + p.next.e;
-  if(it.next_air_label === label && it.next_air_date && it.next_air_date >= todayStr()){
+  if(it.next_air_label === label && it.next_air_date && it.next_air_date > todayStr()){
     return { sec: "up", p: p, date: it.next_air_date, label: label };
   }
   return { sec: "next", p: p };
@@ -771,11 +779,13 @@ function renderTvList(target, animeMode, tab){
       for(const x of notStarted) html += cardNext(x.it, x.c.p);
     }
   } else if(tab === "up"){
-    const dated = bucket.filter(x => x.c.date);
-    const tba = bucket.filter(x => !x.c.date);
-    if(dated.length){
-      html += '<span class="group-pill">Confermate &middot; con data</span>';
-      for(const x of dated) html += cardUpcoming(x.it, x.c);
+    const dated = bucket.filter(x => x.c.date).sort((a, b) => a.c.date < b.c.date ? -1 : 1);
+    const tba = bucket.filter(x => !x.c.date).sort((a, b) => a.it.title.localeCompare(b.it.title));
+    let lastLabel = null;
+    for(const x of dated){
+      const lb = dayLabel(x.c.date);
+      if(lb !== lastLabel){ html += '<span class="group-pill">' + lb + '</span>'; lastLabel = lb; }
+      html += cardUpcoming(x.it, x.c);
     }
     if(tba.length){
       html += '<span class="group-pill">Da annunciare</span>';
@@ -843,7 +853,8 @@ function cardUpcoming(it, c){
   const p = c.p;
   const pct = p.total ? Math.round(p.watched / p.total * 100) : 0;
   const what = c.label ? c.label + " &middot; " : "";
-  const sub = c.date ? what + "in onda" : "in attesa di annuncio";
+  const net = it.network ? " &middot; " + esc(it.network) : "";
+  const sub = c.date ? what + "in onda" + net : "in attesa di annuncio" + net;
   return swipeWrap('<div class="card swipeable" data-act-left="prev:' + it.tmdb_id + '" onclick="openDetail(' + it.tmdb_id + ',\u0027tv\u0027)">' +
     posterOf(it, "&#127909;") +
     '<div class="card-body">' +
@@ -1024,6 +1035,7 @@ async function addItem(id, type, btn){
         seasons_json: seasons,
         is_anime: isAnime,
         is_cartoon: detectCartoon(d, isAnime),
+        network: (d.networks && d.networks[0] && d.networks[0].name) || null,
         anime_doubt: animeDoubtFrom(d, isAnime),
         status: "planned",
         show_status: d.status || null,
@@ -1403,6 +1415,8 @@ async function refreshFromTmdb(){
       patch.last_air_date = d.last_air_date || null;
       patch.is_cartoon = detectCartoon(d, it.is_anime);
       it.is_cartoon = patch.is_cartoon;
+      patch.network = (d.networks && d.networks[0] && d.networks[0].name) || it.network || null;
+      it.network = patch.network;
       it.last_air_date = patch.last_air_date;
       it.seasons_json = patch.seasons_json;
       it.show_status = patch.show_status;
@@ -1615,6 +1629,9 @@ bindTabs("#animeTabs", t => { animeTab = t; renderAnime(); });
 bindTabs("#filmTabs", t => { filmTab = t; renderFilm(); });
 $("#btnSearch").addEventListener("click", doSearch);
 $("#searchInput").addEventListener("keydown", e => { if(e.key === "Enter") doSearch(); });
+$("#searchInput").addEventListener("input", e => {
+  if(e.target.value.trim() === "") $("#searchResults").innerHTML = "";
+});
 
 /* ================= SETTINGS ================= */
 function openSettings(){
@@ -1669,7 +1686,7 @@ $("#mInfo").addEventListener("click", () => {
   let cacheKb = 0;
   try{ cacheKb = Math.round((localStorage.getItem("showtime_cache") || "").length / 1024); }catch(e){}
   $("#infoBody").innerHTML =
-    "<b style=\"color:var(--cream)\">ShowTime v11</b><br>" +
+    "<b style=\"color:var(--cream)\">ShowTime v12</b><br>" +
     "Dati di TMDB &middot; salvataggio su Supabase<br>" +
     "Serie: " + nSerie + " &middot; Anime: " + nAnime + " &middot; Film: " + nFilm + "<br>" +
     "Episodi segnati: " + episodes.length.toLocaleString("it-IT") + "<br>" +
@@ -1715,6 +1732,7 @@ async function updateOne(it){
   };
   patch.anime_doubt = (it.anime_doubt === false) ? false : animeDoubtFrom(d, patch.is_anime);
   patch.is_cartoon = detectCartoon(d, patch.is_anime);
+  patch.network = (d.networks && d.networks[0] && d.networks[0].name) || it.network || null;
   await sb("showtime_items?tmdb_id=eq." + it.tmdb_id + "&media_type=eq.tv", { method: "PATCH", body: patch });
   Object.assign(it, patch);
 }
