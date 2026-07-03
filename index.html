@@ -617,6 +617,15 @@ async function tmdb(path, params){
   return res.json();
 }
 
+function detectAnime(d){
+  const ANIME_ORIGINS = ["JP", "CN", "KR", "TW"];
+  const ANIME_LANGS = ["ja", "zh", "ko"];
+  const isAnimation = (d.genres || []).some(g => g.id === 16);
+  const eastern = (d.origin_country || []).some(c => ANIME_ORIGINS.includes(c)) ||
+                  ANIME_LANGS.includes(d.original_language || "");
+  return isAnimation && eastern;
+}
+
 /* ================= PROGRESS LOGIC ================= */
 function watchedSet(tmdbId){
   const set = new Set();
@@ -734,11 +743,19 @@ function renderTvList(target, animeMode, tab){
       html += '<span class="group-pill">Non hai ancora iniziato</span>';
       for(const x of notStarted) html += cardNext(x.it, x.c.p);
     }
-  } else {
-    for(const x of bucket){
-      if(tab === "up") html += cardUpcoming(x.it, x.c);
-      else html += cardDone(x.it, x.c);
+  } else if(tab === "up"){
+    const dated = bucket.filter(x => x.c.date);
+    const tba = bucket.filter(x => !x.c.date);
+    if(dated.length){
+      html += '<span class="group-pill">Confermate &middot; con data</span>';
+      for(const x of dated) html += cardUpcoming(x.it, x.c);
     }
+    if(tba.length){
+      html += '<span class="group-pill">Da annunciare</span>';
+      for(const x of tba) html += cardUpcoming(x.it, x.c);
+    }
+  } else {
+    for(const x of bucket) html += cardDone(x.it, x.c);
   }
   list.innerHTML = html;
 }
@@ -950,8 +967,7 @@ async function addItem(id, type, btn){
       const seasons = (d.seasons || [])
         .filter(s => s.season_number > 0 && s.episode_count > 0)
         .map(s => ({ n: s.season_number, c: s.episode_count }));
-      const isAnime = (d.genres || []).some(g => g.id === 16) &&
-                      (d.origin_country || []).includes("JP");
+      const isAnime = detectAnime(d);
       record = {
         tmdb_id: d.id,
         media_type: "tv",
@@ -1217,6 +1233,9 @@ function renderDetailHead(){
       : '<button class="action gold" onclick="markMovie(' + it.tmdb_id + ',true)">&#10003; Segna visto</button>';
   }else{
     actions += '<button class="action gold" onclick="markAllSeries()">Tutta vista</button>';
+    actions += it.is_anime
+      ? '<button class="action" onclick="toggleAnime()">&#128250; \u00C8 una serie</button>'
+      : '<button class="action" onclick="toggleAnime()">&#9961;&#65039; \u00C8 un anime</button>';
     if(it.status === "dropped"){
       actions += '<button class="action" onclick="setDropped(false)">Riprendi la serie</button>';
     }else{
@@ -1228,6 +1247,21 @@ function renderDetailHead(){
     '<div class="detail-title">' + esc(it.title) + badge + '</div>' +
     '<div class="detail-sub">' + sub + '</div>' +
     starsHtml + actions;
+}
+
+async function toggleAnime(){
+  if(!requireOnline()) return;
+  const it = currentDetail;
+  if(!it || it.media_type !== "tv") return;
+  it.is_anime = !it.is_anime;
+  try{
+    await sb("showtime_items?tmdb_id=eq." + it.tmdb_id + "&media_type=eq.tv", {
+      method: "PATCH", body: { is_anime: it.is_anime }
+    });
+    renderDetailHead();
+    renderAll();
+    toast(it.is_anime ? "Spostato negli Anime" : "Spostato nelle Serie");
+  }catch(e){ console.error(e); toast("Errore di salvataggio"); }
 }
 
 async function markAllSeries(){
@@ -1582,7 +1616,7 @@ $("#mInfo").addEventListener("click", () => {
   let cacheKb = 0;
   try{ cacheKb = Math.round((localStorage.getItem("showtime_cache") || "").length / 1024); }catch(e){}
   $("#infoBody").innerHTML =
-    "<b style=\"color:var(--cream)\">ShowTime v8</b><br>" +
+    "<b style=\"color:var(--cream)\">ShowTime v9</b><br>" +
     "Dati di TMDB &middot; salvataggio su Supabase<br>" +
     "Serie: " + nSerie + " &middot; Anime: " + nAnime + " &middot; Film: " + nFilm + "<br>" +
     "Episodi segnati: " + episodes.length.toLocaleString("it-IT") + "<br>" +
@@ -1623,7 +1657,8 @@ async function updateOne(it){
     next_air_date: (d.next_episode_to_air && d.next_episode_to_air.air_date) || null,
     next_air_label: d.next_episode_to_air ? ("S" + d.next_episode_to_air.season_number + " E" + d.next_episode_to_air.episode_number) : null,
     last_air_date: d.last_air_date || null,
-    poster_path: d.poster_path || it.poster_path
+    poster_path: d.poster_path || it.poster_path,
+    is_anime: it.is_anime || detectAnime(d)
   };
   await sb("showtime_items?tmdb_id=eq." + it.tmdb_id + "&media_type=eq.tv", { method: "PATCH", body: patch });
   Object.assign(it, patch);
