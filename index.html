@@ -629,11 +629,18 @@ function detectAnime(d){
 function animeDoubtFrom(d, isAnime){
   if(isAnime) return false;                                  // gia' anime con prove chiare
   const genres = d.genres || [];
-  if(genres.length === 0) return true;                       // scheda TMDB senza generi
+  const origins = d.origin_country || [];
+  const lang = d.original_language || "";
+  const easternHint = origins.some(c => ["JP","CN","KR","TW"].includes(c)) ||
+                      ["ja","zh","ko"].includes(lang);
+  if(genres.length === 0){
+    // scheda senza generi: dubbio solo se ha indizi orientali o non ha proprio nulla
+    return easternHint || (origins.length === 0 && !lang);
+  }
   const isAnimation = genres.some(g => g.id === 16);
-  const eastern = (d.origin_country || []).some(c => ["JP","CN","KR","TW"].includes(c)) ||
-                  ["ja","zh","ko"].includes(d.original_language || "");
-  return isAnimation && !eastern;                            // animazione ma origine non chiara
+  if(!isAnimation) return false;                             // non animazione: serie, punto
+  // animazione con origine occidentale dichiarata = cartoon: serie senza dubbio
+  return origins.length === 0 && !lang;                      // dubbio solo se origine ignota
 }
 
 /* ================= PROGRESS LOGIC ================= */
