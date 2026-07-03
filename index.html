@@ -643,6 +643,11 @@ function animeDoubtFrom(d, isAnime){
   return origins.length === 0 && !lang;                      // dubbio solo se origine ignota
 }
 
+function detectCartoon(d, isAnime){
+  if(isAnime) return false;
+  return (d.genres || []).some(g => g.id === 16);   // animazione non orientale = cartoon
+}
+
 /* ================= PROGRESS LOGIC ================= */
 function watchedSet(tmdbId){
   const set = new Set();
@@ -711,10 +716,15 @@ function renderTvList(target, animeMode, tab){
       '<br><button onclick="goView(\u0027cerca\u0027)">Cerca</button></div>';
     return;
   }
-  const bucket = [];
+  let bucket = [];
   for(const it of shows){
     const c = categorize(it);
     if(c.sec === tab) bucket.push({ it: it, c: c });
+  }
+  let cartoons = [];
+  if(!animeMode){
+    cartoons = bucket.filter(x => x.it.is_cartoon);
+    bucket = bucket.filter(x => !x.it.is_cartoon);
   }
   if(tab === "up"){
     bucket.sort((a, b) => {
@@ -726,7 +736,7 @@ function renderTvList(target, animeMode, tab){
   } else {
     bucket.sort((a, b) => a.it.title.localeCompare(b.it.title));
   }
-  if(bucket.length === 0){
+  if(bucket.length === 0 && cartoons.length === 0){
     const msgs = {
       next: "Niente da vedere qui: sei in pari con tutto! &#127881;",
       up: "Nessun episodio in arrivo al momento.",
@@ -773,6 +783,24 @@ function renderTvList(target, animeMode, tab){
     }
   } else {
     for(const x of bucket) html += cardDone(x.it, x.c);
+  }
+  if(cartoons.length){
+    html += '<span class="group-pill">Cartoon</span>';
+    if(tab === "up"){
+      cartoons.sort((a, b) => {
+        if(a.c.date && b.c.date) return a.c.date < b.c.date ? -1 : 1;
+        if(a.c.date) return -1;
+        if(b.c.date) return 1;
+        return a.it.title.localeCompare(b.it.title);
+      });
+    } else {
+      cartoons.sort((a, b) => a.it.title.localeCompare(b.it.title));
+    }
+    for(const x of cartoons){
+      if(tab === "next") html += cardNext(x.it, x.c.p);
+      else if(tab === "up") html += cardUpcoming(x.it, x.c);
+      else html += cardDone(x.it, x.c);
+    }
   }
   list.innerHTML = html;
 }
@@ -995,6 +1023,7 @@ async function addItem(id, type, btn){
         runtime: (d.episode_run_time && d.episode_run_time[0]) || null,
         seasons_json: seasons,
         is_anime: isAnime,
+        is_cartoon: detectCartoon(d, isAnime),
         anime_doubt: animeDoubtFrom(d, isAnime),
         status: "planned",
         show_status: d.status || null,
@@ -1277,8 +1306,9 @@ async function toggleAnime(){
   it.anime_doubt = false;
   try{
     await sb("showtime_items?tmdb_id=eq." + it.tmdb_id + "&media_type=eq.tv", {
-      method: "PATCH", body: { is_anime: it.is_anime, anime_doubt: false }
+      method: "PATCH", body: { is_anime: it.is_anime, anime_doubt: false, is_cartoon: it.is_anime ? false : it.is_cartoon }
     });
+    if(it.is_anime) it.is_cartoon = false;
     renderDetailHead();
     renderAll();
     toast(it.is_anime ? "Spostato negli Anime" : "Spostato nelle Serie");
@@ -1371,6 +1401,8 @@ async function refreshFromTmdb(){
       patch.next_air_date = (d.next_episode_to_air && d.next_episode_to_air.air_date) || null;
       patch.next_air_label = d.next_episode_to_air ? ("S" + d.next_episode_to_air.season_number + " E" + d.next_episode_to_air.episode_number) : null;
       patch.last_air_date = d.last_air_date || null;
+      patch.is_cartoon = detectCartoon(d, it.is_anime);
+      it.is_cartoon = patch.is_cartoon;
       it.last_air_date = patch.last_air_date;
       it.seasons_json = patch.seasons_json;
       it.show_status = patch.show_status;
@@ -1637,7 +1669,7 @@ $("#mInfo").addEventListener("click", () => {
   let cacheKb = 0;
   try{ cacheKb = Math.round((localStorage.getItem("showtime_cache") || "").length / 1024); }catch(e){}
   $("#infoBody").innerHTML =
-    "<b style=\"color:var(--cream)\">ShowTime v10</b><br>" +
+    "<b style=\"color:var(--cream)\">ShowTime v11</b><br>" +
     "Dati di TMDB &middot; salvataggio su Supabase<br>" +
     "Serie: " + nSerie + " &middot; Anime: " + nAnime + " &middot; Film: " + nFilm + "<br>" +
     "Episodi segnati: " + episodes.length.toLocaleString("it-IT") + "<br>" +
@@ -1682,6 +1714,7 @@ async function updateOne(it){
     is_anime: it.is_anime || detectAnime(d)
   };
   patch.anime_doubt = (it.anime_doubt === false) ? false : animeDoubtFrom(d, patch.is_anime);
+  patch.is_cartoon = detectCartoon(d, patch.is_anime);
   await sb("showtime_items?tmdb_id=eq." + it.tmdb_id + "&media_type=eq.tv", { method: "PATCH", body: patch });
   Object.assign(it, patch);
 }
