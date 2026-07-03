@@ -221,6 +221,7 @@ async function run(){
       else doubt = origins.length === 0 && !lang;   // cartoon occidentale dichiarato = serie senza dubbio
       patch.anime_doubt = (it.anime_doubt === false) ? false : doubt;
       patch.is_cartoon = !patch.is_anime && isAnimation;
+      patch.network = (d.networks && d.networks[0] && d.networks[0].name) || it.network || null;
       await sb("showtime_items?tmdb_id=eq." + it.tmdb_id + "&media_type=eq.tv", { method: "PATCH", body: patch });
       Object.assign(it, patch);
     }catch(e){ errs++; console.error(it.title, e); }
