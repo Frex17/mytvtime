@@ -127,6 +127,19 @@ h2.section:first-child{margin-top:2px}
 .check-btn.done{background:var(--gold);color:#181307}
 .stars-mini{font-size:12px;color:var(--gold);margin-top:3px;letter-spacing:2px}
 
+.sec-cnt{color:var(--muted);font-size:14px;font-weight:400;font-family:var(--sans)}
+.air-pill{
+  flex-shrink:0;min-width:52px;text-align:center;
+  border:1.5px solid var(--gold);border-radius:12px;padding:6px 8px;
+  color:var(--gold-light);font-size:11px;font-weight:700;line-height:1.25;
+}
+.air-pill .d{font-family:var(--serif);font-size:19px;display:block;color:var(--gold)}
+.tag-drop{
+  display:inline-block;font-size:10px;letter-spacing:.6px;font-weight:700;
+  color:var(--muted);border:1px solid var(--line);border-radius:5px;
+  padding:1px 5px;margin-left:6px;vertical-align:1px;
+}
+
 /* ---------- empty state ---------- */
 .empty{
   text-align:center;color:var(--muted);padding:48px 20px;font-size:14px;line-height:1.6;
@@ -244,6 +257,14 @@ h2.section:first-child{margin-top:2px}
   border-radius:12px;padding:13px;
 }
 
+/* ---------- offline ---------- */
+#offlineBar{
+  display:none;background:var(--surface-2);color:var(--gold-light);
+  font-size:12px;text-align:center;padding:8px 14px;
+  border-bottom:1px solid var(--line);
+}
+body.offline #offlineBar{display:block}
+
 /* ---------- toast ---------- */
 #toast{
   position:fixed;left:50%;bottom:calc(104px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(20px);
@@ -265,36 +286,22 @@ h2.section:first-child{margin-top:2px}
   <button class="gear" id="btnSettings" aria-label="Impostazioni">&#9881;</button>
 </header>
 
+<div id="offlineBar">&#128246; Sei offline &mdash; libreria in sola lettura</div>
+
 <main>
 
   <!-- ============ SERIE ============ -->
   <section class="view active" id="view-serie">
-    <div class="chips" id="serieChips">
-      <button class="chip active" data-f="watching">In corso</button>
-      <button class="chip" data-f="planned">Da iniziare</button>
-      <button class="chip" data-f="completed">Completate</button>
-      <button class="chip" data-f="all">Tutte</button>
-    </div>
     <div id="serieList"></div>
   </section>
 
   <!-- ============ ANIME ============ -->
   <section class="view" id="view-anime">
-    <div class="chips" id="animeChips">
-      <button class="chip active" data-f="watching">In corso</button>
-      <button class="chip" data-f="planned">Da iniziare</button>
-      <button class="chip" data-f="completed">Completati</button>
-      <button class="chip" data-f="all">Tutti</button>
-    </div>
     <div id="animeList"></div>
   </section>
 
   <!-- ============ FILM ============ -->
   <section class="view" id="view-film">
-    <div class="chips" id="filmChips">
-      <button class="chip active" data-f="planned">Da vedere</button>
-      <button class="chip" data-f="completed">Visti</button>
-    </div>
     <div id="filmList"></div>
   </section>
 
@@ -351,9 +358,6 @@ const IMG_BIG = "https://image.tmdb.org/t/p/w780";
 /* ================= STATE ================= */
 let items = [];          // showtime_items rows
 let episodes = [];       // showtime_episodes rows
-let serieFilter = "watching";
-let animeFilter = "watching";
-let filmFilter = "planned";
 let currentDetail = null;      // item currently open in overlay
 const seasonCache = {};        // "tmdbId-season" -> episodes array from TMDB
 
@@ -370,6 +374,18 @@ function toast(msg){
   t._h = setTimeout(()=>t.classList.remove("show"), 2200);
 }
 function yearOf(d){ return d ? d.slice(0,4) : ""; }
+const MESI = ["gen","feb","mar","apr","mag","giu","lug","ago","set","ott","nov","dic"];
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+function airPill(dateStr){
+  if(!dateStr) return '<div class="air-pill">TBA</div>';
+  const t = todayStr();
+  const diff = Math.round((new Date(dateStr) - new Date(t)) / 86400000);
+  if(diff === 0) return '<div class="air-pill"><span class="d">Oggi</span></div>';
+  if(diff === 1) return '<div class="air-pill"><span class="d">Domani</span></div>';
+  const d = new Date(dateStr);
+  return '<div class="air-pill"><span class="d">' + d.getDate() + '</span>' + MESI[d.getMonth()] +
+    (d.getFullYear() > new Date().getFullYear() ? " " + d.getFullYear() : "") + '</div>';
+}
 
 /* ================= SUPABASE ================= */
 async function sb(path, opts){
@@ -397,16 +413,56 @@ async function loadLibrary(){
   try{
     const r = await Promise.all([
       sb("showtime_items?select=*&order=added_at.desc"),
-      sb("showtime_episodes?select=tmdb_id,season,episode,watched_at")
+      sb("showtime_episodes?select=tmdb_id,season,episode")
     ]);
     items = r[0] || [];
     episodes = r[1] || [];
+    saveCache();
     renderAll();
+    setTimeout(updateSchedules, 1500);
   }catch(e){
     console.error(e);
-    toast("Errore di connessione al database");
+    if(loadFromCache()){
+      renderAll();
+      setOffline(true);
+    }else{
+      toast("Errore di connessione al database");
+    }
   }
 }
+
+/* ================= OFFLINE CACHE ================= */
+function saveCache(){
+  try{
+    const slim = episodes.map(e => [e.tmdb_id, e.season, e.episode]);
+    localStorage.setItem("showtime_cache", JSON.stringify({ items: items, eps: slim, t: Date.now() }));
+  }catch(e){ console.warn("cache non salvata", e); }
+}
+function loadFromCache(){
+  try{
+    const raw = localStorage.getItem("showtime_cache");
+    if(!raw) return false;
+    const c = JSON.parse(raw);
+    items = c.items || [];
+    episodes = (c.eps || []).map(a => ({ tmdb_id: a[0], season: a[1], episode: a[2] }));
+    const d = new Date(c.t);
+    $("#offlineBar").innerHTML = "&#128246; Sei offline &mdash; libreria in sola lettura (dati del " +
+      d.toLocaleDateString("it-IT") + " " + d.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }) + ")";
+    return true;
+  }catch(e){ return false; }
+}
+function setOffline(on){
+  document.body.classList.toggle("offline", on);
+}
+function requireOnline(){
+  if(!navigator.onLine){
+    toast("Sei offline: solo consultazione");
+    return false;
+  }
+  return true;
+}
+window.addEventListener("online", () => { setOffline(false); loadLibrary(); });
+window.addEventListener("offline", () => { setOffline(true); });
 
 /* ================= TMDB ================= */
 async function tmdb(path, params){
@@ -460,90 +516,154 @@ function statusOf(item){
 }
 
 /* ================= RENDER: SERIE / ANIME ================= */
-function renderSerie(){
-  renderTvList("#serieList", serieFilter, false);
+const ONGOING = ["Returning Series", "In Production", "Planned", "Pilot"];
+function categorize(it){
+  const p = progressOf(it);
+  if(it.status === "dropped") return { sec: "done", p: p, dropped: true };
+  if(!p.next){
+    if(ONGOING.includes(it.show_status || "")){
+      const d = (it.next_air_date && it.next_air_date >= todayStr()) ? it.next_air_date : null;
+      return { sec: "up", p: p, date: d, label: it.next_air_label || "" };
+    }
+    return { sec: "done", p: p };
+  }
+  const label = "S" + p.next.s + " E" + p.next.e;
+  if(it.next_air_label === label && it.next_air_date && it.next_air_date >= todayStr()){
+    return { sec: "up", p: p, date: it.next_air_date, label: label };
+  }
+  return { sec: "next", p: p };
 }
-function renderAnime(){
-  renderTvList("#animeList", animeFilter, true);
-}
-function renderTvList(target, filter, animeMode){
-  const list = $(target);
-  let shows = items.filter(i => i.media_type === "tv" && !!i.is_anime === animeMode);
-  if(filter !== "all") shows = shows.filter(i => statusOf(i) === filter);
 
+function renderSerie(){ renderTvList("#serieList", false); }
+function renderAnime(){ renderTvList("#animeList", true); }
+
+function renderTvList(target, animeMode){
+  const list = $(target);
+  const shows = items.filter(i => i.media_type === "tv" && !!i.is_anime === animeMode);
   if(shows.length === 0){
     const word = animeMode ? "anime" : "serie";
-    const msgs = {
-      watching: "Nessun " + word + " in corso.<br>Cercane uno e segna il primo episodio!",
-      planned: "Nessun " + word + " da iniziare.",
-      completed: "Nessun " + word + " completato... per ora.",
-      all: "Nessun " + word + " in libreria.<br>Vai su Cerca e aggiungi!"
-    };
     const icon = animeMode ? "&#9961;&#65039;" : "&#128250;";
-    list.innerHTML = '<div class="empty"><div class="big">' + icon + '</div>' + msgs[filter] +
+    list.innerHTML = '<div class="empty"><div class="big">' + icon + '</div>Nessun ' + word +
+      ' in libreria.<br>Vai su Cerca e aggiungi!' +
       '<br><button onclick="goView(\u0027cerca\u0027)">Cerca</button></div>';
     return;
   }
+  const next = [], up = [], done = [];
+  for(const it of shows){
+    const c = categorize(it);
+    if(c.sec === "next") next.push({ it: it, c: c });
+    else if(c.sec === "up") up.push({ it: it, c: c });
+    else done.push({ it: it, c: c });
+  }
+  next.sort((a, b) => a.it.title.localeCompare(b.it.title));
+  up.sort((a, b) => {
+    if(a.c.date && b.c.date) return a.c.date < b.c.date ? -1 : 1;
+    if(a.c.date) return -1;
+    if(b.c.date) return 1;
+    return a.it.title.localeCompare(b.it.title);
+  });
+  done.sort((a, b) => a.it.title.localeCompare(b.it.title));
 
   let html = "";
-  for(const it of shows){
-    const p = progressOf(it);
-    const pct = p.total ? Math.round(p.watched / p.total * 100) : 0;
-    const poster = it.poster_path
-      ? '<img class="poster" src="' + IMG + it.poster_path + '" alt="" loading="lazy">'
-      : '<div class="poster ph">&#127909;</div>';
-    const badge = "";
-    let nextHtml = "";
-    if(p.next && statusOf(it) !== "dropped"){
-      nextHtml = '<div class="next-line"><span class="next-pill">Prossimo: S' + p.next.s + ' E' + p.next.e + '</span></div>';
-    }
-    const stars = it.rating ? '<div class="stars-mini">' + "&#9733;".repeat(it.rating) + '</div>' : "";
-    const checkBtn = p.next
-      ? '<button class="check-btn" onclick="event.stopPropagation();markNext(' + it.tmdb_id + ')" aria-label="Segna prossimo episodio visto">&#10003;</button>'
-      : '<button class="check-btn done" aria-label="Completata">&#10003;</button>';
-    html += '<div class="card" onclick="openDetail(' + it.tmdb_id + ',\u0027tv\u0027)">' +
-      poster +
-      '<div class="card-body">' +
-        '<div class="card-title">' + esc(it.title) + badge + '</div>' +
-        '<div class="card-sub">' + p.watched + ' / ' + p.total + ' episodi &middot; ' + yearOf(it.first_air_date) + '</div>' +
-        stars +
-        '<div class="progress"><div style="width:' + pct + '%"></div></div>' +
-        nextHtml +
-      '</div>' + checkBtn + '</div>';
+  if(next.length){
+    html += '<h2 class="section">Da vedere <span class="sec-cnt">(' + next.length + ')</span></h2>';
+    for(const x of next) html += cardNext(x.it, x.c.p);
+  }
+  if(up.length){
+    html += '<h2 class="section">In arrivo <span class="sec-cnt">(' + up.length + ')</span></h2>';
+    for(const x of up) html += cardUpcoming(x.it, x.c);
+  }
+  if(done.length){
+    html += '<h2 class="section">Completate <span class="sec-cnt">(' + done.length + ')</span></h2>';
+    for(const x of done) html += cardDone(x.it, x.c);
   }
   list.innerHTML = html;
+}
+
+function posterOf(it, fallback){
+  return it.poster_path
+    ? '<img class="poster" src="' + IMG + it.poster_path + '" alt="" loading="lazy">'
+    : '<div class="poster ph">' + fallback + '</div>';
+}
+
+function cardNext(it, p){
+  const pct = p.total ? Math.round(p.watched / p.total * 100) : 0;
+  const stars = it.rating ? '<div class="stars-mini">' + "&#9733;".repeat(it.rating) + '</div>' : "";
+  return '<div class="card" onclick="openDetail(' + it.tmdb_id + ',\u0027tv\u0027)">' +
+    posterOf(it, "&#127909;") +
+    '<div class="card-body">' +
+      '<div class="card-title">' + esc(it.title) + '</div>' +
+      '<div class="card-sub">' + p.watched + ' / ' + p.total + ' episodi</div>' + stars +
+      '<div class="progress"><div style="width:' + pct + '%"></div></div>' +
+      '<div class="next-line"><span class="next-pill">Prossimo: S' + p.next.s + ' E' + p.next.e + '</span></div>' +
+    '</div>' +
+    '<button class="check-btn" onclick="event.stopPropagation();markNext(' + it.tmdb_id + ')" aria-label="Segna prossimo episodio visto">&#10003;</button>' +
+  '</div>';
+}
+
+function cardUpcoming(it, c){
+  const p = c.p;
+  const pct = p.total ? Math.round(p.watched / p.total * 100) : 0;
+  const what = c.label ? c.label + " &middot; " : "";
+  const sub = c.date ? what + "in onda" : "in attesa di annuncio";
+  return '<div class="card" onclick="openDetail(' + it.tmdb_id + ',\u0027tv\u0027)">' +
+    posterOf(it, "&#127909;") +
+    '<div class="card-body">' +
+      '<div class="card-title">' + esc(it.title) + '</div>' +
+      '<div class="card-sub">' + sub + '</div>' +
+      '<div class="progress"><div style="width:' + pct + '%"></div></div>' +
+    '</div>' + airPill(c.date) + '</div>';
+}
+
+function cardDone(it, c){
+  const p = c.p;
+  const stars = it.rating ? '<div class="stars-mini">' + "&#9733;".repeat(it.rating) + '</div>' : "";
+  const tag = c.dropped ? '<span class="tag-drop">ABBANDONATA</span>' : "";
+  return '<div class="card" onclick="openDetail(' + it.tmdb_id + ',\u0027tv\u0027)">' +
+    posterOf(it, "&#127909;") +
+    '<div class="card-body">' +
+      '<div class="card-title">' + esc(it.title) + tag + '</div>' +
+      '<div class="card-sub">' + p.watched + ' / ' + p.total + ' episodi &middot; ' + yearOf(it.first_air_date) + '</div>' +
+      stars +
+    '</div>' +
+    '<button class="check-btn done" aria-label="Completata">&#10003;</button>' +
+  '</div>';
 }
 
 /* ================= RENDER: FILM ================= */
 function renderFilm(){
   const list = $("#filmList");
-  const movies = items.filter(i => i.media_type === "movie" && statusOf(i) === filmFilter);
+  const movies = items.filter(i => i.media_type === "movie");
   if(movies.length === 0){
-    const msg = filmFilter === "planned"
-      ? "Nessun film da vedere.<br>Aggiungine uno dalla ricerca!"
-      : "Nessun film visto... ancora.";
-    list.innerHTML = '<div class="empty"><div class="big">&#127916;</div>' + msg +
+    list.innerHTML = '<div class="empty"><div class="big">&#127916;</div>Nessun film in libreria.<br>Aggiungine uno dalla ricerca!' +
       '<br><button onclick="goView(\u0027cerca\u0027)">Cerca un film</button></div>';
     return;
   }
+  const towatch = movies.filter(m => statusOf(m) !== "completed").sort((a,b)=>a.title.localeCompare(b.title));
+  const seen = movies.filter(m => statusOf(m) === "completed").sort((a,b)=>a.title.localeCompare(b.title));
   let html = "";
-  for(const it of movies){
-    const poster = it.poster_path
-      ? '<img class="poster" src="' + IMG + it.poster_path + '" alt="" loading="lazy">'
-      : '<div class="poster ph">&#127916;</div>';
-    const stars = it.rating ? '<div class="stars-mini">' + "&#9733;".repeat(it.rating) + '</div>' : "";
-    const btn = filmFilter === "planned"
-      ? '<button class="check-btn" onclick="event.stopPropagation();markMovie(' + it.tmdb_id + ',true)" aria-label="Segna visto">&#10003;</button>'
-      : '<button class="check-btn done" onclick="event.stopPropagation();markMovie(' + it.tmdb_id + ',false)" aria-label="Segna non visto">&#10003;</button>';
-    html += '<div class="card" onclick="openDetail(' + it.tmdb_id + ',\u0027movie\u0027)">' +
-      poster +
-      '<div class="card-body">' +
-        '<div class="card-title">' + esc(it.title) + '</div>' +
-        '<div class="card-sub">' + yearOf(it.first_air_date) + (it.runtime ? ' &middot; ' + it.runtime + ' min' : '') + '</div>' +
-        stars +
-      '</div>' + btn + '</div>';
+  if(towatch.length){
+    html += '<h2 class="section">Da vedere <span class="sec-cnt">(' + towatch.length + ')</span></h2>';
+    for(const it of towatch) html += movieCard(it, false);
+  }
+  if(seen.length){
+    html += '<h2 class="section">Visti <span class="sec-cnt">(' + seen.length + ')</span></h2>';
+    for(const it of seen) html += movieCard(it, true);
   }
   list.innerHTML = html;
+}
+function movieCard(it, seen){
+  const stars = it.rating ? '<div class="stars-mini">' + "&#9733;".repeat(it.rating) + '</div>' : "";
+  const btn = seen
+    ? '<button class="check-btn done" onclick="event.stopPropagation();markMovie(' + it.tmdb_id + ',false)" aria-label="Segna non visto">&#10003;</button>'
+    : '<button class="check-btn" onclick="event.stopPropagation();markMovie(' + it.tmdb_id + ',true)" aria-label="Segna visto">&#10003;</button>';
+  return '<div class="card" onclick="openDetail(' + it.tmdb_id + ',\u0027movie\u0027)">' +
+    posterOf(it, "&#127916;") +
+    '<div class="card-body">' +
+      '<div class="card-title">' + esc(it.title) + '</div>' +
+      '<div class="card-sub">' + yearOf(it.first_air_date) + (it.runtime ? ' &middot; ' + it.runtime + ' min' : '') + '</div>' +
+      stars +
+    '</div>' + btn + '</div>';
 }
 
 /* ================= RENDER: STATS ================= */
@@ -573,6 +693,7 @@ function renderStats(){
 }
 
 function renderAll(){
+  if(navigator.onLine) saveCache();
   renderSerie();
   renderAnime();
   renderFilm();
@@ -584,6 +705,7 @@ function renderAll(){
 async function doSearch(){
   const q = $("#searchInput").value.trim();
   if(!q) return;
+  if(!requireOnline()) return;
   if(!tmdbKey()){
     openSettings();
     toast("Prima inserisci la chiave TMDB");
@@ -625,6 +747,7 @@ async function doSearch(){
 
 /* ================= ADD ITEM ================= */
 async function addItem(id, type, btn){
+  if(!requireOnline()) return;
   if(btn){ btn.textContent = "..."; btn.disabled = true; }
   try{
     const d = await tmdb("/" + type + "/" + id, {});
@@ -645,7 +768,10 @@ async function addItem(id, type, btn){
         runtime: (d.episode_run_time && d.episode_run_time[0]) || null,
         seasons_json: seasons,
         is_anime: isAnime,
-        status: "planned"
+        status: "planned",
+        show_status: d.status || null,
+        next_air_date: (d.next_episode_to_air && d.next_episode_to_air.air_date) || null,
+        next_air_label: d.next_episode_to_air ? ("S" + d.next_episode_to_air.season_number + " E" + d.next_episode_to_air.episode_number) : null
       };
     }else{
       record = {
@@ -697,6 +823,7 @@ async function markNext(tmdbId){
 }
 
 async function setEpisode(tmdbId, season, ep, watched){
+  if(!requireOnline()) return;
   try{
     if(watched){
       await sb("showtime_episodes?on_conflict=tmdb_id,season,episode", {
@@ -721,6 +848,7 @@ async function setEpisode(tmdbId, season, ep, watched){
 }
 
 async function markSeason(tmdbId, season, count){
+  if(!requireOnline()) return;
   const it = items.find(i => i.tmdb_id === tmdbId && i.media_type === "tv");
   if(!it) return;
   const set = watchedSet(tmdbId);
@@ -761,6 +889,7 @@ async function syncStatus(tmdbId){
 
 /* ================= MOVIE ACTIONS ================= */
 async function markMovie(tmdbId, watched){
+  if(!requireOnline()) return;
   const it = items.find(i => i.tmdb_id === tmdbId && i.media_type === "movie");
   if(!it) return;
   it.status = watched ? "completed" : "planned";
@@ -779,6 +908,7 @@ async function markMovie(tmdbId, watched){
 
 /* ================= RATING ================= */
 async function setRating(n){
+  if(!requireOnline()) return;
   if(!currentDetail) return;
   currentDetail.rating = (currentDetail.rating === n) ? null : n;
   try{
@@ -879,6 +1009,7 @@ function renderDetailHead(){
 }
 
 async function setDropped(dropped){
+  if(!requireOnline()) return;
   const it = currentDetail;
   if(!it) return;
   it.status = dropped ? "dropped" : statusOfRecompute(it);
@@ -899,6 +1030,7 @@ function statusOfRecompute(it){
 }
 
 async function removeItem(){
+  if(!requireOnline()) return;
   const it = currentDetail;
   if(!it) return;
   if(!confirm("Rimuovere " + it.title + " dalla libreria? Anche i progressi verranno cancellati.")) return;
@@ -916,6 +1048,7 @@ async function removeItem(){
 }
 
 async function refreshFromTmdb(){
+  if(!requireOnline()) return;
   const it = currentDetail;
   if(!it) return;
   try{
@@ -928,7 +1061,13 @@ async function refreshFromTmdb(){
       patch.runtime = (d.episode_run_time && d.episode_run_time[0]) || it.runtime;
       patch.poster_path = d.poster_path;
       patch.backdrop_path = d.backdrop_path;
+      patch.show_status = d.status || null;
+      patch.next_air_date = (d.next_episode_to_air && d.next_episode_to_air.air_date) || null;
+      patch.next_air_label = d.next_episode_to_air ? ("S" + d.next_episode_to_air.season_number + " E" + d.next_episode_to_air.episode_number) : null;
       it.seasons_json = patch.seasons_json;
+      it.show_status = patch.show_status;
+      it.next_air_date = patch.next_air_date;
+      it.next_air_label = patch.next_air_label;
     }else{
       patch.runtime = d.runtime || it.runtime;
       patch.poster_path = d.poster_path;
@@ -1027,27 +1166,6 @@ function goView(name){
 document.querySelectorAll("nav button").forEach(b => {
   b.addEventListener("click", () => goView(b.dataset.v));
 });
-$("#serieChips").addEventListener("click", e => {
-  const c = e.target.closest(".chip");
-  if(!c) return;
-  serieFilter = c.dataset.f;
-  document.querySelectorAll("#serieChips .chip").forEach(x => x.classList.toggle("active", x === c));
-  renderSerie();
-});
-$("#animeChips").addEventListener("click", e => {
-  const c = e.target.closest(".chip");
-  if(!c) return;
-  animeFilter = c.dataset.f;
-  document.querySelectorAll("#animeChips .chip").forEach(x => x.classList.toggle("active", x === c));
-  renderAnime();
-});
-$("#filmChips").addEventListener("click", e => {
-  const c = e.target.closest(".chip");
-  if(!c) return;
-  filmFilter = c.dataset.f;
-  document.querySelectorAll("#filmChips .chip").forEach(x => x.classList.toggle("active", x === c));
-  renderFilm();
-});
 $("#btnSearch").addEventListener("click", doSearch);
 $("#searchInput").addEventListener("keydown", e => { if(e.key === "Enter") doSearch(); });
 
@@ -1073,6 +1191,42 @@ $("#btnSaveKey").addEventListener("click", async () => {
     }
   }
 });
+
+/* ============ AGGIORNAMENTO PROGRAMMAZIONE (in background) ============ */
+let updaterRunning = false;
+async function updateSchedules(){
+  if(updaterRunning || !tmdbKey() || !navigator.onLine) return;
+  updaterRunning = true;
+  const t = todayStr();
+  const targets = items.filter(it => {
+    if(it.media_type !== "tv" || it.status === "dropped") return false;
+    if(!it.show_status) return true;                                   // mai aggiornata (import)
+    if(it.next_air_date && it.next_air_date < t) return true;          // data passata: episodio uscito
+    if(!progressOf(it).next && ONGOING.includes(it.show_status)) return true; // in attesa: ricontrolla
+    return false;
+  });
+  let changed = 0;
+  for(const it of targets){
+    try{
+      const d = await tmdb("/tv/" + it.tmdb_id, {});
+      const patch = {
+        seasons_json: (d.seasons || []).filter(x => x.season_number > 0 && x.episode_count > 0)
+          .map(x => ({ n: x.season_number, c: x.episode_count })),
+        show_status: d.status || null,
+        next_air_date: (d.next_episode_to_air && d.next_episode_to_air.air_date) || null,
+        next_air_label: d.next_episode_to_air ? ("S" + d.next_episode_to_air.season_number + " E" + d.next_episode_to_air.episode_number) : null,
+        poster_path: d.poster_path || it.poster_path
+      };
+      await sb("showtime_items?tmdb_id=eq." + it.tmdb_id + "&media_type=eq.tv", { method: "PATCH", body: patch });
+      Object.assign(it, patch);
+      changed++;
+      if(changed % 25 === 0) renderAll();
+      await sleep(80);
+    }catch(e){ await sleep(300); }
+  }
+  if(changed) renderAll();
+  updaterRunning = false;
+}
 
 /* ================= INIT ================= */
 if("serviceWorker" in navigator){
