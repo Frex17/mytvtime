@@ -157,11 +157,15 @@ h2.section:first-child{margin-top:2px}
 /* ---------- swipe ---------- */
 .swipe-wrap{position:relative;margin-bottom:10px;border-radius:14px;overflow:hidden}
 .swipe-wrap .card{margin-bottom:0;position:relative;z-index:1}
-.swipe-bg{
-  position:absolute;inset:0;z-index:0;display:flex;align-items:center;
-  padding-left:20px;background:var(--gold);color:#181307;
+.swipeable{touch-action:pan-y;user-select:none;-webkit-user-select:none;cursor:grab}
+.swipe-bg,.swipe-bg-l{
+  position:absolute;inset:0;z-index:0;display:none;align-items:center;
   font-weight:800;font-size:15px;gap:8px;
 }
+.swipe-bg{padding-left:20px;background:var(--gold);color:#181307;justify-content:flex-start}
+.swipe-bg-l{padding-right:20px;background:var(--danger);color:var(--cream);justify-content:flex-end}
+.swipe-wrap.dir-r .swipe-bg{display:flex}
+.swipe-wrap.dir-l .swipe-bg-l{display:flex}
 .ep-wrap{border-radius:0;margin-bottom:0;border-top:1px solid var(--line)}
 .ep-wrap .ep{border-top:none;background:var(--surface);position:relative;z-index:1}
 .group-pill{
@@ -658,6 +662,10 @@ function renderTvList(target, animeMode, tab){
       else if(x.it.last_air_date && x.it.last_air_date >= cutoff) fresh.push(x);
       else behind.push(x);
     }
+    fresh.sort((a, b) => {
+      if(a.it.last_air_date !== b.it.last_air_date) return a.it.last_air_date > b.it.last_air_date ? -1 : 1;
+      return a.it.title.localeCompare(b.it.title);
+    });
     if(fresh.length){
       html += '<span class="group-pill">Guarda il prossimo</span>';
       for(const x of fresh) html += cardNext(x.it, x.c.p);
@@ -694,10 +702,10 @@ function cardNext(it, p){
   const remaining = p.total - p.watched - 1;
   const plus = remaining > 0 ? '<span class="plus">+' + remaining + '</span>' : "";
   const isNew = it.last_air_date && it.last_air_date >= daysAgoStr(7);
-  const nuovo = isNew ? '<div><span class="badge-new">NUOVO</span></div>' : "";
-  return '<div class="swipe-wrap">' +
-    '<div class="swipe-bg">&#10003; Vista</div>' +
-    '<div class="card swipeable" data-act="next:' + it.tmdb_id + '" onclick="openDetail(' + it.tmdb_id + ',\u0027tv\u0027)">' +
+  let nuovo = "";
+  if(isNew) nuovo = '<div><span class="badge-new">' + (p.next.e === 1 ? "PREMIERE" : "NUOVO") + '</span></div>';
+  return swipeWrap(
+    '<div class="card swipeable" data-act="next:' + it.tmdb_id + '" data-act-left="prev:' + it.tmdb_id + '" onclick="openDetail(' + it.tmdb_id + ',\u0027tv\u0027)">' +
       posterOf(it, "&#127909;") +
       '<div class="card-body">' +
         '<div class="card-title">' + esc(it.title) + '</div>' +
@@ -706,37 +714,39 @@ function cardNext(it, p){
         '<div class="progress"><div style="width:' + pct + '%"></div></div>' +
         nuovo +
       '</div>' +
-      '<button class="check-btn" onclick="event.stopPropagation();markNext(' + it.tmdb_id + ')" aria-label="Segna prossimo episodio visto">&#10003;</button>' +
-    '</div>' +
-  '</div>';
+    '</div>');
+}
+function swipeWrap(inner, extraClass){
+  return '<div class="swipe-wrap' + (extraClass ? " " + extraClass : "") + '">' +
+    '<div class="swipe-bg">&#10003; Vista</div>' +
+    '<div class="swipe-bg-l">Non vista &#10005;</div>' + inner + '</div>';
 }
 function cardUpcoming(it, c){
   const p = c.p;
   const pct = p.total ? Math.round(p.watched / p.total * 100) : 0;
   const what = c.label ? c.label + " &middot; " : "";
   const sub = c.date ? what + "in onda" : "in attesa di annuncio";
-  return '<div class="card" onclick="openDetail(' + it.tmdb_id + ',\u0027tv\u0027)">' +
+  return swipeWrap('<div class="card swipeable" data-act-left="prev:' + it.tmdb_id + '" onclick="openDetail(' + it.tmdb_id + ',\u0027tv\u0027)">' +
     posterOf(it, "&#127909;") +
     '<div class="card-body">' +
       '<div class="card-title">' + esc(it.title) + '</div>' +
       '<div class="card-sub">' + sub + '</div>' +
       '<div class="progress"><div style="width:' + pct + '%"></div></div>' +
-    '</div>' + airPill(c.date) + '</div>';
+    '</div>' + airPill(c.date) + '</div>');
 }
 
 function cardDone(it, c){
   const p = c.p;
   const stars = it.rating ? '<div class="stars-mini">' + "&#9733;".repeat(it.rating) + '</div>' : "";
   const tag = c.dropped ? '<span class="tag-drop">ABBANDONATA</span>' : "";
-  return '<div class="card" onclick="openDetail(' + it.tmdb_id + ',\u0027tv\u0027)">' +
+  return swipeWrap('<div class="card swipeable" data-act-left="prev:' + it.tmdb_id + '" onclick="openDetail(' + it.tmdb_id + ',\u0027tv\u0027)">' +
     posterOf(it, "&#127909;") +
     '<div class="card-body">' +
       '<div class="card-title">' + esc(it.title) + tag + '</div>' +
       '<div class="card-sub">' + p.watched + ' / ' + p.total + ' episodi &middot; ' + yearOf(it.first_air_date) + '</div>' +
       stars +
     '</div>' +
-    '<button class="check-btn done" aria-label="Completata">&#10003;</button>' +
-  '</div>';
+  '</div>');
 }
 
 /* ================= RENDER: FILM ================= */
@@ -765,13 +775,13 @@ function movieCard(it, seen){
   const btn = seen
     ? '<button class="check-btn done" onclick="event.stopPropagation();markMovie(' + it.tmdb_id + ',false)" aria-label="Segna non visto">&#10003;</button>'
     : '<button class="check-btn" onclick="event.stopPropagation();markMovie(' + it.tmdb_id + ',true)" aria-label="Segna visto">&#10003;</button>';
-  return '<div class="card" onclick="openDetail(' + it.tmdb_id + ',\u0027movie\u0027)">' +
+  return swipeWrap('<div class="card swipeable" data-act="mov:' + it.tmdb_id + ':1" data-act-left="mov:' + it.tmdb_id + ':0" onclick="openDetail(' + it.tmdb_id + ',\u0027movie\u0027)">' +
     posterOf(it, "&#127916;") +
     '<div class="card-body">' +
       '<div class="card-title">' + esc(it.title) + '</div>' +
       '<div class="card-sub">' + yearOf(it.first_air_date) + (it.runtime ? ' &middot; ' + it.runtime + ' min' : '') + '</div>' +
       stars +
-    '</div>' + btn + '</div>';
+    '</div>' + btn + '</div>');
 }
 
 /* ================= RENDER: STATS ================= */
@@ -938,6 +948,25 @@ async function addItem(id, type, btn){
 }
 
 /* ================= EPISODE ACTIONS ================= */
+function lastWatchedOf(it){
+  const set = watchedSet(it.tmdb_id);
+  let last = null;
+  for(const st of (it.seasons_json || [])){
+    for(let e = 1; e <= st.c; e++){
+      if(set.has(st.n + "-" + e)) last = { s: st.n, e: e };
+    }
+  }
+  return last;
+}
+async function markPrev(tmdbId){
+  const it = items.find(i => i.tmdb_id === tmdbId && i.media_type === "tv");
+  if(!it) return;
+  const lw = lastWatchedOf(it);
+  if(!lw){ toast("Niente da annullare"); return; }
+  await setEpisode(tmdbId, lw.s, lw.e, false);
+  toast("Tolta S" + lw.s + " E" + lw.e);
+}
+
 async function markNext(tmdbId){
   const it = items.find(i => i.tmdb_id === tmdbId && i.media_type === "tv");
   if(!it) return;
@@ -1253,14 +1282,16 @@ function renderSeasonBody(season, count){
     const name = meta ? meta.name : "Episodio " + e;
     const date = meta && meta.air_date ? meta.air_date.split("-").reverse().join("/") : "";
     const on = set.has(season + "-" + e);
-    const inner = '<div class="ep' + (on ? "" : " swipeable") + '"' +
-      (on ? "" : ' data-act="ep:' + it.tmdb_id + ':' + season + ':' + e + '"') + '>' +
+    const acts = on
+      ? ' data-act-left="unep:' + it.tmdb_id + ':' + season + ':' + e + '"'
+      : ' data-act="ep:' + it.tmdb_id + ':' + season + ':' + e + '"';
+    const inner = '<div class="ep swipeable"' + acts + '>' +
       '<span class="num">E' + e + '</span>' +
       '<span class="name">' + esc(name) + '</span>' +
       '<span class="date">' + date + '</span>' +
       '<button class="ep-check ' + (on ? "on" : "") + '" onclick="setEpisode(' + it.tmdb_id + ',' + season + ',' + e + ',' + (on ? "false" : "true") + ')" aria-label="Episodio ' + e + '">&#10003;</button>' +
     '</div>';
-    html += '<div class="swipe-wrap ep-wrap"><div class="swipe-bg">&#10003;</div>' + inner + '</div>';
+    html += swipeWrap(inner, "ep-wrap");
   }
   body.innerHTML = html;
 }
@@ -1290,44 +1321,56 @@ function updateSeasonCounts(){
   }
 }
 
-/* ================= SWIPE (scorri a destra = vista) ================= */
-let swEl = null, swStartX = 0, swStartY = 0, swDx = 0, swHoriz = null, swSuppress = false;
+/* ============ SWIPE (destra = vista, sinistra = non vista) ============ */
+let swEl = null, swWrap = null, swStartX = 0, swStartY = 0, swDx = 0, swHoriz = null, swSuppress = false;
 
-document.addEventListener("touchstart", e => {
+document.addEventListener("pointerdown", e => {
   const el = e.target.closest(".swipeable");
   if(!el || e.target.closest("button")) { swEl = null; return; }
-  swEl = el; swDx = 0; swHoriz = null;
-  swStartX = e.touches[0].clientX;
-  swStartY = e.touches[0].clientY;
+  swEl = el; swWrap = el.parentElement;
+  swDx = 0; swHoriz = null;
+  swStartX = e.clientX; swStartY = e.clientY;
   el.style.transition = "none";
-}, { passive: true });
+});
 
-document.addEventListener("touchmove", e => {
+document.addEventListener("pointermove", e => {
   if(!swEl) return;
-  const dx = e.touches[0].clientX - swStartX;
-  const dy = e.touches[0].clientY - swStartY;
+  const dx = e.clientX - swStartX;
+  const dy = e.clientY - swStartY;
   if(swHoriz === null){
     if(Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
     swHoriz = Math.abs(dx) > Math.abs(dy);
   }
   if(!swHoriz) return;
-  swDx = Math.max(0, Math.min(dx, 120));
+  const hasL = !!swEl.dataset.actLeft, hasR = !!swEl.dataset.act;
+  swDx = Math.max(hasL ? -120 : 0, Math.min(dx, hasR ? 120 : 0));
+  swWrap.classList.toggle("dir-r", swDx > 0);
+  swWrap.classList.toggle("dir-l", swDx < 0);
   swEl.style.transform = "translateX(" + swDx + "px)";
-}, { passive: true });
+});
 
-document.addEventListener("touchend", () => {
+function endSwipe(){
   if(!swEl) return;
-  const el = swEl, dx = swDx, act = el.dataset.act;
+  const el = swEl, wrap = swWrap, dx = swDx;
   swEl = null;
   el.style.transition = "transform .18s ease";
   el.style.transform = "translateX(0)";
-  if(swHoriz && dx > 5) swSuppress = true;
-  if(swHoriz && dx > 70 && act && requireOnline()){
+  setTimeout(() => { wrap.classList.remove("dir-r", "dir-l"); }, 200);
+  if(swHoriz && Math.abs(dx) > 5) swSuppress = true;
+  let act = null;
+  if(swHoriz && dx > 70) act = el.dataset.act;
+  else if(swHoriz && dx < -70) act = el.dataset.actLeft;
+  if(act && requireOnline()){
     const p = act.split(":");
     if(p[0] === "next") markNext(parseInt(p[1]));
+    else if(p[0] === "prev") markPrev(parseInt(p[1]));
     else if(p[0] === "ep") setEpisode(parseInt(p[1]), parseInt(p[2]), parseInt(p[3]), true);
+    else if(p[0] === "unep") setEpisode(parseInt(p[1]), parseInt(p[2]), parseInt(p[3]), false);
+    else if(p[0] === "mov") markMovie(parseInt(p[1]), p[2] === "1");
   }
-});
+}
+document.addEventListener("pointerup", endSwipe);
+document.addEventListener("pointercancel", endSwipe);
 
 document.addEventListener("click", e => {
   if(swSuppress){
@@ -1386,38 +1429,52 @@ $("#btnSaveKey").addEventListener("click", async () => {
 
 /* ============ AGGIORNAMENTO PROGRAMMAZIONE (in background) ============ */
 let updaterRunning = false;
+async function updateOne(it){
+  const d = await tmdb("/tv/" + it.tmdb_id, {});
+  const patch = {
+    seasons_json: (d.seasons || []).filter(x => x.season_number > 0 && x.episode_count > 0)
+      .map(x => ({ n: x.season_number, c: x.episode_count })),
+    show_status: d.status || null,
+    next_air_date: (d.next_episode_to_air && d.next_episode_to_air.air_date) || null,
+    next_air_label: d.next_episode_to_air ? ("S" + d.next_episode_to_air.season_number + " E" + d.next_episode_to_air.episode_number) : null,
+    last_air_date: d.last_air_date || null,
+    poster_path: d.poster_path || it.poster_path
+  };
+  await sb("showtime_items?tmdb_id=eq." + it.tmdb_id + "&media_type=eq.tv", { method: "PATCH", body: patch });
+  Object.assign(it, patch);
+}
 async function updateSchedules(){
   if(updaterRunning || !tmdbKey() || !navigator.onLine) return;
   updaterRunning = true;
   const t = todayStr();
   const targets = items.filter(it => {
     if(it.media_type !== "tv" || it.status === "dropped") return false;
-    if(!it.show_status) return true;                       // mai aggiornata (import)
-    if(ONGOING.includes(it.show_status)) return true;      // serie in corso: sempre fresca
+    if(!it.show_status) return true;
+    if(ONGOING.includes(it.show_status)) return true;
     if(it.next_air_date && it.next_air_date < t) return true;
     return false;
   });
-  let changed = 0;
-  for(const it of targets){
-    try{
-      const d = await tmdb("/tv/" + it.tmdb_id, {});
-      const patch = {
-        seasons_json: (d.seasons || []).filter(x => x.season_number > 0 && x.episode_count > 0)
-          .map(x => ({ n: x.season_number, c: x.episode_count })),
-        show_status: d.status || null,
-        next_air_date: (d.next_episode_to_air && d.next_episode_to_air.air_date) || null,
-        next_air_label: d.next_episode_to_air ? ("S" + d.next_episode_to_air.season_number + " E" + d.next_episode_to_air.episode_number) : null,
-        last_air_date: d.last_air_date || null,
-        poster_path: d.poster_path || it.poster_path
-      };
-      await sb("showtime_items?tmdb_id=eq." + it.tmdb_id + "&media_type=eq.tv", { method: "PATCH", body: patch });
-      Object.assign(it, patch);
-      changed++;
-      if(changed % 25 === 0) renderAll();
-      await sleep(80);
-    }catch(e){ await sleep(300); }
+  // prima le serie che stai guardando, poi le altre
+  targets.sort((a, b) => {
+    const pa = progressOf(a), pb = progressOf(b);
+    const sa = (pa.watched > 0 && pa.next) ? 0 : (pa.watched > 0 ? 1 : 2);
+    const sbv = (pb.watched > 0 && pb.next) ? 0 : (pb.watched > 0 ? 1 : 2);
+    return sa - sbv;
+  });
+  let changed = 0, errs = 0;
+  for(let i = 0; i < targets.length; i += 4){
+    const batch = targets.slice(i, i + 4);
+    const results = await Promise.allSettled(batch.map(updateOne));
+    for(const r of results){
+      if(r.status === "fulfilled") changed++;
+      else { errs++; console.error(r.reason); }
+    }
+    if(changed && changed % 24 < 4) renderAll();
+    await sleep(120);
+    if(errs > 12) break;
   }
   if(changed) renderAll();
+  if(errs > 12) toast("Programmazione non aggiornata: controlla la migrazione SQL");
   updaterRunning = false;
 }
 
