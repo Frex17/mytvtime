@@ -44,6 +44,13 @@ h1 .gold{color:var(--gold)}
 .row .r.gold{color:var(--gold-light)}
 .row .r.warn{color:var(--danger)}
 #status{font-size:13px;color:var(--muted);margin-top:8px;font-family:monospace}
+.mini{
+  background:var(--surface-2);border:1.5px solid var(--gold);color:var(--gold);
+  border-radius:8px;padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;
+  font-family:'DM Sans',sans-serif;margin-left:6px;
+}
+.mini:active{background:var(--gold);color:#181307}
+.resolved{color:var(--gold-light);font-size:12px}
 </style>
 </head>
 <body>
@@ -221,7 +228,7 @@ async function run(){
   }
 
   setStatus("Analisi delle categorie...");
-  const upDated = [], upTba = [], next = [], doneList = [], anomalies = [];
+  const upDated = [], upTba = [], next = [], doneList = [], anomalies = [], doubts = [];
   for(const it of items){
     const a = analyzeShow(it, epsByShow[it.tmdb_id] || new Set());
     const label = (it.is_anime ? "&#9961;&#65039; " : "") + esc(it.title);
@@ -231,7 +238,7 @@ async function run(){
     }
     else if(a.cat === "next") next.push({ l: label, r: a.why });
     else doneList.push({ l: label, r: a.why });
-    if(it.anime_doubt) anomalies.push({ l: label, r: "anime o serie? verifica dalla scheda", warn: true });
+    if(it.anime_doubt) doubts.push({ id: it.tmdb_id, title: it.title, anime: !!it.is_anime });
     if(a.gaps > 0) anomalies.push({ l: label, r: a.gaps + " buchi nei progressi", warn: true });
     if(a.ghosts > 0) anomalies.push({ l: label, r: a.ghosts + " righe orfane import (innocue)", warn: false });
   }
@@ -246,7 +253,21 @@ async function run(){
     }
     return h + '</div>';
   }
+  let doubtHtml = "";
+  if(doubts.length){
+    doubtHtml = '<span class="pill">Anime o serie? &middot; conferma tu (' + doubts.length + ')</span><div class="card">';
+    for(const x of doubts){
+      doubtHtml += '<div class="row" id="doubt-' + x.id + '">' +
+        '<span class="t">' + esc(x.title) + (x.anime ? ' <small style="color:var(--muted)">(ora: anime)</small>' : ' <small style="color:var(--muted)">(ora: serie)</small>') + '</span>' +
+        '<span class="r">' +
+          '<button class="mini" onclick="resolveDoubt(' + x.id + ',true)">&#9961;&#65039; Anime</button>' +
+          '<button class="mini" onclick="resolveDoubt(' + x.id + ',false)">&#128250; Serie</button>' +
+        '</span></div>';
+    }
+    doubtHtml += '</div>';
+  }
   $("#report").innerHTML =
+    doubtHtml +
     section("In arrivo &middot; con data", upDated, true) +
     section("In arrivo &middot; in attesa di annuncio", upTba, true) +
     section("Anomalie nei progressi", anomalies) +
@@ -257,6 +278,22 @@ async function run(){
   setStatus("Analisi completata. " + (errs ? errs + " serie non raggiungibili su TMDB." : "Tutte le serie verificate."));
   $("#btnDone").style.display = "block";
 }
+async function resolveDoubt(id, anime){
+  const row = document.getElementById("doubt-" + id);
+  try{
+    await sb("showtime_items?tmdb_id=eq." + id + "&media_type=eq.tv", {
+      method: "PATCH", body: { is_anime: anime, anime_doubt: false }
+    });
+    if(row){
+      const r = row.querySelector(".r");
+      r.innerHTML = '<span class="resolved">&#10003; ' + (anime ? "Anime" : "Serie") + '</span>';
+    }
+  }catch(e){
+    console.error(e);
+    if(row) row.querySelector(".r").innerHTML = '<span style="color:var(--danger);font-size:12px">errore, riprova</span>';
+  }
+}
+
 $("#btnStart").addEventListener("click", run);
 </script>
 </body>
