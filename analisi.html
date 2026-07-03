@@ -209,12 +209,17 @@ async function run(){
       };
       const ANIME_ORIGINS = ["JP","CN","KR","TW"], ANIME_LANGS = ["ja","zh","ko"];
       const genres = d.genres || [];
+      const origins = d.origin_country || [];
+      const lang = d.original_language || "";
       const isAnimation = genres.some(g => g.id === 16);
-      const eastern = (d.origin_country || []).some(c => ANIME_ORIGINS.includes(c)) ||
-                      ANIME_LANGS.includes(d.original_language || "");
-      patch.is_anime = it.is_anime || (isAnimation && eastern);
-      patch.anime_doubt = (it.anime_doubt === false) ? false
-        : (patch.is_anime ? false : (genres.length === 0 || (isAnimation && !eastern)));
+      const easternHint = origins.some(c => ANIME_ORIGINS.includes(c)) || ANIME_LANGS.includes(lang);
+      patch.is_anime = it.is_anime || (isAnimation && easternHint);
+      let doubt;
+      if(patch.is_anime) doubt = false;
+      else if(genres.length === 0) doubt = easternHint || (origins.length === 0 && !lang);
+      else if(!isAnimation) doubt = false;
+      else doubt = origins.length === 0 && !lang;   // cartoon occidentale dichiarato = serie senza dubbio
+      patch.anime_doubt = (it.anime_doubt === false) ? false : doubt;
       await sb("showtime_items?tmdb_id=eq." + it.tmdb_id + "&media_type=eq.tv", { method: "PATCH", body: patch });
       Object.assign(it, patch);
     }catch(e){ errs++; console.error(it.title, e); }
