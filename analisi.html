@@ -200,6 +200,14 @@ async function run(){
         next_air_label: d.next_episode_to_air ? ("S" + d.next_episode_to_air.season_number + " E" + d.next_episode_to_air.episode_number) : null,
         last_air_date: d.last_air_date || null
       };
+      const ANIME_ORIGINS = ["JP","CN","KR","TW"], ANIME_LANGS = ["ja","zh","ko"];
+      const genres = d.genres || [];
+      const isAnimation = genres.some(g => g.id === 16);
+      const eastern = (d.origin_country || []).some(c => ANIME_ORIGINS.includes(c)) ||
+                      ANIME_LANGS.includes(d.original_language || "");
+      patch.is_anime = it.is_anime || (isAnimation && eastern);
+      patch.anime_doubt = (it.anime_doubt === false) ? false
+        : (patch.is_anime ? false : (genres.length === 0 || (isAnimation && !eastern)));
       await sb("showtime_items?tmdb_id=eq." + it.tmdb_id + "&media_type=eq.tv", { method: "PATCH", body: patch });
       Object.assign(it, patch);
     }catch(e){ errs++; console.error(it.title, e); }
@@ -223,6 +231,7 @@ async function run(){
     }
     else if(a.cat === "next") next.push({ l: label, r: a.why });
     else doneList.push({ l: label, r: a.why });
+    if(it.anime_doubt) anomalies.push({ l: label, r: "anime o serie? verifica dalla scheda", warn: true });
     if(a.gaps > 0) anomalies.push({ l: label, r: a.gaps + " buchi nei progressi", warn: true });
     if(a.ghosts > 0) anomalies.push({ l: label, r: a.ghosts + " righe orfane import (innocue)", warn: false });
   }
