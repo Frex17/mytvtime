@@ -299,6 +299,13 @@ h2.section:first-child{margin-top:2px}
 }
 .ep-check.on{border-color:var(--gold);background:var(--gold);color:#181307}
 .loading-eps{padding:14px;color:var(--muted);font-size:13px;border-top:1px solid var(--line)}
+.ep-block-head{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:10px 14px;border-top:1px solid var(--line);
+  background:var(--surface-2);font-size:12px;font-weight:700;
+  letter-spacing:.6px;color:var(--gold-light);cursor:pointer;
+}
+.ep-block-head .cnt{color:var(--muted);font-weight:500}
 
 /* ---------- stats ---------- */
 .hero-stat{
@@ -447,9 +454,17 @@ body.offline #offlineBar{display:block}
 <div id="menu">
   <button id="mKey">&#128273; Chiave API TMDB</button>
   <button id="mTheme">&#9728;&#65039; Tema chiaro</button>
-  <button id="mRefresh">&#8635; Aggiorna programmazione</button>
+  <button id="mRefresh">&#128260; Aggiorna programmazione</button>
   <button id="mExport">&#128190; Esporta backup</button>
-  <div class="mver">ShowTime v7 &middot; dati di TMDB</div>
+  <button id="mInfo">&#128241; Dati di sistema</button>
+</div>
+
+<div class="modal-bg" id="infoModal">
+  <div class="modal">
+    <h3>Dati di sistema</h3>
+    <div id="infoBody" style="font-size:13px;line-height:2;color:var(--muted)"></div>
+    <button class="save" id="btnInfoClose" style="margin-top:14px">Chiudi</button>
+  </div>
 </div>
 
 <div id="toast"></div>
@@ -1352,9 +1367,9 @@ function renderSeasonBody(season, count){
   if(!body) return;
   const eps = seasonCache[it.tmdb_id + "-" + season] || [];
   const set = watchedSet(it.tmdb_id);
-  let html = "";
   const max = Math.max(count, eps.length);
-  for(let e = 1; e <= max; e++){
+
+  function epRow(e){
     const meta = eps.find(x => x.episode_number === e);
     const name = meta ? meta.name : "Episodio " + e;
     const date = meta && meta.air_date ? meta.air_date.split("-").reverse().join("/") : "";
@@ -1368,9 +1383,42 @@ function renderSeasonBody(season, count){
       '<span class="date">' + date + '</span>' +
       '<button class="ep-check ' + (on ? "on" : "") + '" onclick="setEpisode(' + it.tmdb_id + ',' + season + ',' + e + ',' + (on ? "false" : "true") + ')" aria-label="Episodio ' + e + '">&#10003;</button>' +
     '</div>';
-    html += swipeWrap(inner, "ep-wrap");
+    return swipeWrap(inner, "ep-wrap");
+  }
+
+  const BLOCK = 25;
+  if(max <= 30){
+    let html = "";
+    for(let e = 1; e <= max; e++) html += epRow(e);
+    body.innerHTML = html;
+    return;
+  }
+
+  // stagione lunga: blocchi richiudibili da 25, aperto solo quello col prossimo episodio
+  let firstUnwatched = max;
+  for(let e = 1; e <= max; e++){
+    if(!set.has(season + "-" + e)){ firstUnwatched = e; break; }
+  }
+  let html = "";
+  for(let start = 1; start <= max; start += BLOCK){
+    const end = Math.min(start + BLOCK - 1, max);
+    let w = 0;
+    for(let e = start; e <= end; e++) if(set.has(season + "-" + e)) w++;
+    const openBlock = firstUnwatched >= start && firstUnwatched <= end;
+    const bid = "blk-" + season + "-" + start;
+    html += '<div class="ep-block-head" onclick="toggleBlock(\u0027' + bid + '\u0027)">' +
+      '<span>Episodi ' + start + '&ndash;' + end + '</span>' +
+      '<span class="cnt">' + w + ' / ' + (end - start + 1) + (w === end - start + 1 ? ' &#10003;' : '') + '</span>' +
+    '</div>' +
+    '<div id="' + bid + '" style="display:' + (openBlock ? "block" : "none") + '">';
+    for(let e = start; e <= end; e++) html += epRow(e);
+    html += '</div>';
   }
   body.innerHTML = html;
+}
+function toggleBlock(id){
+  const el = document.getElementById(id);
+  if(el) el.style.display = el.style.display === "none" ? "block" : "none";
 }
 
 function refreshDetailChecks(){
@@ -1525,6 +1573,26 @@ $("#mExport").addEventListener("click", () => {
   a.click();
   URL.revokeObjectURL(a.href);
   toast("Backup scaricato");
+});
+$("#mInfo").addEventListener("click", () => {
+  $("#menu").classList.remove("open");
+  const nSerie = items.filter(i => i.media_type === "tv" && !i.is_anime).length;
+  const nAnime = items.filter(i => i.media_type === "tv" && i.is_anime).length;
+  const nFilm = items.filter(i => i.media_type === "movie").length;
+  let cacheKb = 0;
+  try{ cacheKb = Math.round((localStorage.getItem("showtime_cache") || "").length / 1024); }catch(e){}
+  $("#infoBody").innerHTML =
+    "<b style=\"color:var(--cream)\">ShowTime v8</b><br>" +
+    "Dati di TMDB &middot; salvataggio su Supabase<br>" +
+    "Serie: " + nSerie + " &middot; Anime: " + nAnime + " &middot; Film: " + nFilm + "<br>" +
+    "Episodi segnati: " + episodes.length.toLocaleString("it-IT") + "<br>" +
+    "Cache offline: " + cacheKb + " KB<br>" +
+    "Chiave TMDB: " + (tmdbKey() ? "configurata &#10003;" : "mancante &#10005;");
+  $("#infoModal").classList.add("open");
+});
+$("#btnInfoClose").addEventListener("click", () => $("#infoModal").classList.remove("open"));
+$("#infoModal").addEventListener("click", e => {
+  if(e.target === $("#infoModal")) $("#infoModal").classList.remove("open");
 });
 applyTheme();
 $("#settingsModal").addEventListener("click", e => {
