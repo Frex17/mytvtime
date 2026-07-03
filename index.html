@@ -1140,6 +1140,13 @@ function renderDetailHead(){
   let sub;
   if(it.media_type === "tv"){
     sub = yearOf(it.first_air_date) + " &middot; " + p.watched + " / " + p.total + " episodi";
+    const STATI = { "Returning Series": "In corso", "Ended": "Conclusa", "Canceled": "Cancellata",
+                    "In Production": "In produzione", "Planned": "Annunciata", "Pilot": "Pilot" };
+    const bits = [];
+    bits.push(it.show_status ? (STATI[it.show_status] || it.show_status) : "stato da aggiornare");
+    if(it.last_air_date) bits.push("ultima uscita " + it.last_air_date.split("-").reverse().join("/"));
+    if(it.next_air_label && it.next_air_date) bits.push("prossima " + it.next_air_label + " il " + it.next_air_date.split("-").reverse().join("/"));
+    sub += "<br>" + bits.join(" &middot; ");
   }else{
     sub = yearOf(it.first_air_date) + (it.runtime ? " &middot; " + it.runtime + " min" : "");
   }
@@ -1154,6 +1161,7 @@ function renderDetailHead(){
       ? '<button class="action" onclick="markMovie(' + it.tmdb_id + ',false)">Segna non visto</button>'
       : '<button class="action gold" onclick="markMovie(' + it.tmdb_id + ',true)">&#10003; Segna visto</button>';
   }else{
+    actions += '<button class="action gold" onclick="markAllSeries()">Tutta vista</button>';
     if(it.status === "dropped"){
       actions += '<button class="action" onclick="setDropped(false)">Riprendi la serie</button>';
     }else{
@@ -1165,6 +1173,35 @@ function renderDetailHead(){
     '<div class="detail-title">' + esc(it.title) + badge + '</div>' +
     '<div class="detail-sub">' + sub + '</div>' +
     starsHtml + actions;
+}
+
+async function markAllSeries(){
+  if(!requireOnline()) return;
+  const it = currentDetail;
+  if(!it || it.media_type !== "tv") return;
+  if(!confirm("Segnare TUTTI gli episodi di " + it.title + " come visti?")) return;
+  const set = watchedSet(it.tmdb_id);
+  const rows = [];
+  for(const st of (it.seasons_json || [])){
+    for(let e = 1; e <= st.c; e++){
+      if(!set.has(st.n + "-" + e)) rows.push({ tmdb_id: it.tmdb_id, season: st.n, episode: e });
+    }
+  }
+  if(rows.length === 0){ toast("Era già tutta vista"); return; }
+  try{
+    for(let i = 0; i < rows.length; i += 400){
+      await sb("showtime_episodes?on_conflict=tmdb_id,season,episode", {
+        method: "POST",
+        headers: { "Prefer": "resolution=merge-duplicates" },
+        body: rows.slice(i, i + 400)
+      });
+    }
+    for(const r of rows) episodes.push(r);
+    await syncStatus(it.tmdb_id);
+    renderAll();
+    refreshDetailChecks();
+    toast("Segnati " + rows.length + " episodi come visti");
+  }catch(e){ console.error(e); toast("Errore di salvataggio"); }
 }
 
 async function setDropped(dropped){
