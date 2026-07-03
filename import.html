@@ -327,7 +327,10 @@ async function runImport(){
           poster_path: d.poster_path, backdrop_path: d.backdrop_path,
           first_air_date: d.first_air_date || null,
           runtime: (d.episode_run_time && d.episode_run_time[0]) || null,
-          seasons_json: seasons, is_anime: isAnime, status: status
+          seasons_json: seasons, is_anime: isAnime, status: status,
+          show_status: d.status || null,
+          next_air_date: (d.next_episode_to_air && d.next_episode_to_air.air_date) || null,
+          next_air_label: d.next_episode_to_air ? ("S" + d.next_episode_to_air.season_number + " E" + d.next_episode_to_air.episode_number) : null
         }
       });
       const epRows = [];
