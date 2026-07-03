@@ -156,14 +156,14 @@ h2.section:first-child{margin-top:2px}
 
 /* ---------- swipe ---------- */
 .swipe-wrap{position:relative;margin-bottom:10px;border-radius:14px;overflow:hidden}
-.swipe-wrap .card{margin-bottom:0}
+.swipe-wrap .card{margin-bottom:0;position:relative;z-index:1}
 .swipe-bg{
-  position:absolute;inset:0;display:flex;align-items:center;
+  position:absolute;inset:0;z-index:0;display:flex;align-items:center;
   padding-left:20px;background:var(--gold);color:#181307;
   font-weight:800;font-size:15px;gap:8px;
 }
 .ep-wrap{border-radius:0;margin-bottom:0;border-top:1px solid var(--line)}
-.ep-wrap .ep{border-top:none;background:var(--surface)}
+.ep-wrap .ep{border-top:none;background:var(--surface);position:relative;z-index:1}
 .group-pill{
   display:block;width:max-content;max-width:100%;margin:18px auto 12px;
   background:var(--surface-2);border:1px solid var(--line);color:var(--muted);
