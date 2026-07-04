@@ -479,8 +479,8 @@ body.offline #offlineBar{display:block}
       </div>
       <div id="loginStep2" style="display:none">
         <h3>Controlla la posta</h3>
-        <p>Ti abbiamo inviato un <b>codice a 6 cifre</b>. Scrivilo qui sotto (se non arriva, guarda nello spam).</p>
-        <input type="text" id="otpInput" placeholder="123456" inputmode="numeric" autocomplete="one-time-code" maxlength="6" style="text-align:center;font-size:22px;letter-spacing:8px">
+        <p>Ti abbiamo inviato un <b>codice numerico</b>. Scrivilo qui sotto (se non arriva, guarda nello spam).</p>
+        <input type="text" id="otpInput" placeholder="Codice" inputmode="numeric" autocomplete="one-time-code" maxlength="12" style="text-align:center;font-size:22px;letter-spacing:6px">
         <button class="save" id="btnVerify">Entra</button>
         <p style="margin-top:10px;text-align:center"><a href="#" id="otpBack" style="color:var(--muted);font-size:13px">Cambia email o rimanda il codice</a></p>
       </div>
@@ -1917,8 +1917,8 @@ $("#btnLogin").addEventListener("click", async () => {
   }
 });
 $("#btnVerify").addEventListener("click", async () => {
-  const code = $("#otpInput").value.trim();
-  if(code.length !== 6){ $("#loginMsg").textContent = "Il codice ha 6 cifre"; return; }
+  const code = $("#otpInput").value.trim().replace(/\s+/g, "");
+  if(code.length < 4){ $("#loginMsg").textContent = "Scrivi il codice ricevuto via email"; return; }
   $("#btnVerify").disabled = true;
   $("#loginMsg").textContent = "Verifica in corso...";
   const r = await sbClient.auth.verifyOtp({ email: pendingEmail, token: code, type: "email" });
