@@ -339,6 +339,11 @@ h2.section:first-child{margin-top:2px}
   letter-spacing:.6px;color:var(--gold-light);cursor:pointer;
 }
 .ep-block-head .cnt{color:var(--muted);font-weight:500}
+.ep.future{opacity:.5}
+.ep-tba{
+  flex-shrink:0;font-size:10px;font-weight:700;color:var(--muted);
+  border:1px solid var(--line);border-radius:6px;padding:4px 8px;letter-spacing:.5px;
+}
 
 /* ---------- stats ---------- */
 .hero-stat{
@@ -1182,6 +1187,11 @@ async function markNext(tmdbId){
   if(!it) return;
   const p = progressOf(it);
   if(!p.next) return;
+  const label = "S" + p.next.s + " E" + p.next.e;
+  if(it.next_air_label === label && it.next_air_date && it.next_air_date > todayStr()){
+    toast("Esce il " + it.next_air_date.split("-").reverse().join("/"));
+    return;
+  }
   await setEpisode(tmdbId, p.next.s, p.next.e, true);
   const p2 = progressOf(it);
   if(p2.watched >= p2.total && p2.total > 0){
@@ -1260,11 +1270,30 @@ async function markSeason(tmdbId, season, count){
   if(!requireOnline()) return;
   const it = items.find(i => i.tmdb_id === tmdbId && i.media_type === "tv");
   if(!it) return;
+  // recupera le date della stagione per non segnare episodi non ancora usciti
+  const key = tmdbId + "-" + season;
+  if(!seasonCache[key]){
+    try{
+      const d = await tmdb("/tv/" + tmdbId + "/season/" + season, {});
+      seasonCache[key] = d.episodes || [];
+    }catch(e){
+      console.error(e);
+      toast("Impossibile verificare le date di uscita, riprova");
+      return;
+    }
+  }
+  const eps = seasonCache[key];
+  const t = todayStr();
   const set = watchedSet(tmdbId);
   const rows = [];
+  let skippedFuture = 0;
   for(let e = 1; e <= count; e++){
-    if(!set.has(season + "-" + e)) rows.push({ tmdb_id: tmdbId, season: season, episode: e });
+    if(set.has(season + "-" + e)) continue;
+    const meta = eps.find(x => x.episode_number === e);
+    if(meta && (!meta.air_date || meta.air_date > t)){ skippedFuture++; continue; }
+    rows.push({ tmdb_id: tmdbId, season: season, episode: e });
   }
+  if(rows.length === 0 && skippedFuture > 0){ toast("Gli episodi rimanenti non sono ancora usciti"); return; }
   if(rows.length === 0){ toast("Stagione gi&agrave; vista"); return; }
   try{
     await sb("showtime_episodes?on_conflict=user_id,tmdb_id,season,episode", {
@@ -1572,11 +1601,34 @@ async function markAllSeries(){
   const it = currentDetail;
   if(!it || it.media_type !== "tv") return;
   if(!confirm("Segnare TUTTI gli episodi di " + it.title + " come visti?")) return;
+  // gli episodi futuri stanno nell'ultima stagione: verifica le sue date se la serie e' in corso
+  const seasonsList = it.seasons_json || [];
+  const futureSet = new Set();
+  const lastSeason = seasonsList[seasonsList.length - 1];
+  if(lastSeason && ONGOING.includes(it.show_status || "")){
+    try{
+      const key = it.tmdb_id + "-" + lastSeason.n;
+      if(!seasonCache[key]){
+        const d = await tmdb("/tv/" + it.tmdb_id + "/season/" + lastSeason.n, {});
+        seasonCache[key] = d.episodes || [];
+      }
+      const t = todayStr();
+      for(const m of seasonCache[key]){
+        if(!m.air_date || m.air_date > t) futureSet.add(lastSeason.n + "-" + m.episode_number);
+      }
+    }catch(e){
+      console.error(e);
+      toast("Impossibile verificare le date di uscita, riprova");
+      return;
+    }
+  }
   const set = watchedSet(it.tmdb_id);
   const rows = [];
-  for(const st of (it.seasons_json || [])){
+  for(const st of seasonsList){
     for(let e = 1; e <= st.c; e++){
-      if(!set.has(st.n + "-" + e)) rows.push({ tmdb_id: it.tmdb_id, season: st.n, episode: e });
+      if(set.has(st.n + "-" + e)) continue;
+      if(futureSet.has(st.n + "-" + e)) continue;
+      rows.push({ tmdb_id: it.tmdb_id, season: st.n, episode: e });
     }
   }
   if(rows.length === 0){ toast("Era già tutta vista"); return; }
@@ -1713,8 +1765,19 @@ function renderSeasonBody(season, count){
   function epRow(e){
     const meta = eps.find(x => x.episode_number === e);
     const name = meta ? meta.name : "Episodio " + e;
-    const date = meta && meta.air_date ? meta.air_date.split("-").reverse().join("/") : "";
     const on = set.has(season + "-" + e);
+    const future = !on && meta && (!meta.air_date || meta.air_date > todayStr());
+    const date = meta && meta.air_date ? meta.air_date.split("-").reverse().join("/") : "";
+    if(future){
+      const pill = meta.air_date
+        ? '<span class="ep-tba">' + meta.air_date.slice(5).split("-").reverse().join("/") + '</span>'
+        : '<span class="ep-tba">TBA</span>';
+      const inner = '<div class="ep future">' +
+        '<span class="num">E' + e + '</span>' +
+        '<span class="name">' + esc(name) + '</span>' + pill +
+      '</div>';
+      return swipeWrap(inner, "ep-wrap");
+    }
     const acts = on
       ? ' data-act-left="unep:' + it.tmdb_id + ':' + season + ':' + e + '"'
       : ' data-act="ep:' + it.tmdb_id + ':' + season + ':' + e + '"';
@@ -1926,7 +1989,7 @@ $("#mInfo").addEventListener("click", () => {
   let cacheKb = 0;
   try{ cacheKb = Math.round((localStorage.getItem("showtime_cache") || "").length / 1024); }catch(e){}
   $("#infoBody").innerHTML =
-    "<b style=\"color:var(--cream)\">ShowTime v15</b><br>" +
+    "<b style=\"color:var(--cream)\">ShowTime v16</b><br>" +
     "Dati di TMDB &middot; salvataggio su Supabase<br>" +
     "Serie: " + nSerie + " &middot; Anime: " + nAnime + " &middot; Film: " + nFilm + "<br>" +
     "Episodi segnati: " + episodes.length.toLocaleString("it-IT") + "<br>" +
