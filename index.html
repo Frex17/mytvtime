@@ -1519,9 +1519,9 @@ function renderDetail(){
     '<div class="detail-body">' +
       '<div id="detailHead"></div>' +
       (it.media_type === "tv"
-        ? '<div class="subtabs"><button class="active" onclick="goDetailTab(\u0027eps\u0027,this)">Episodi</button><button onclick="goDetailTab(\u0027info\u0027,this)">Info</button></div>' +
-          '<div id="dtEps">' + seasonsHtml + '</div>' +
-          '<div id="dtInfo" style="display:none"><div id="detailExtra" class="empty" style="padding:24px">Carico le informazioni...</div></div>'
+        ? '<div class="subtabs"><button class="active" onclick="goDetailTab(\u0027info\u0027,this)">Info</button><button onclick="goDetailTab(\u0027eps\u0027,this)">Episodi</button></div>' +
+          '<div id="dtInfo"><div id="detailExtra" class="empty" style="padding:24px">Carico le informazioni...</div></div>' +
+          '<div id="dtEps" style="display:none">' + seasonsHtml + '</div>'
         : '<div id="detailExtra"></div>') +
     '</div>';
   renderDetailHead();
