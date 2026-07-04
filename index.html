@@ -316,6 +316,14 @@ h2.section:first-child{margin-top:2px}
 }
 .cast-item .cn{font-size:11px;font-weight:700;line-height:1.25}
 .cast-item .cc{font-size:10px;color:var(--muted);line-height:1.25;margin-top:2px}
+.providers{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.prov{
+  display:flex;align-items:center;gap:8px;background:var(--surface-2);
+  border:1px solid var(--line);border-radius:10px;padding:6px 11px;
+  font-size:12px;font-weight:700;
+}
+.prov img{width:22px;height:22px;border-radius:6px}
+.jw{font-size:10px;color:var(--muted);margin-top:6px}
 .info-rows{margin-top:14px;font-size:13px;line-height:2;color:var(--muted)}
 .info-rows b{color:var(--cream);font-weight:500}
 .genres{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 0}
@@ -729,6 +737,21 @@ function animeDoubtFrom(d, isAnime){
   return origins.length === 0 && !lang;                      // dubbio solo se origine ignota
 }
 
+const CJK = /[\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF]/;
+function bestTitle(d){
+  const raw = d.name || d.original_name || d.title || d.original_title || "";
+  if(!CJK.test(raw)) return raw;
+  const trs = (d.translations && d.translations.translations) || [];
+  for(const lang of ["it", "en"]){
+    const t = trs.find(x => x.iso_639_1 === lang && x.data && (x.data.name || x.data.title));
+    if(t){
+      const n = t.data.name || t.data.title;
+      if(n && !CJK.test(n)) return n;
+    }
+  }
+  return raw;
+}
+
 function detectCartoon(d, isAnime){
   if(isAnime) return false;
   return (d.genres || []).some(g => g.id === 16);   // animazione non orientale = cartoon
@@ -913,7 +936,8 @@ function cardNext(it, p){
   const pct = p.total ? Math.round(p.watched / p.total * 100) : 0;
   const remaining = p.total - p.watched - 1;
   const plus = remaining > 0 ? '<span class="plus">+' + remaining + '</span>' : "";
-  const isNew = it.last_air_date && it.last_air_date >= daysAgoStr(7);
+  const nextLabel = "S" + p.next.s + " E" + p.next.e;
+  const isNew = it.last_air_date && it.last_air_date >= daysAgoStr(7) && it.last_air_label === nextLabel;
   let nuovo = "";
   if(isNew) nuovo = '<div><span class="badge-new">' + (p.next.e === 1 ? "PREMIERE" : "NUOVO") + '</span></div>';
   return swipeWrap(
@@ -1101,7 +1125,7 @@ async function addItem(id, type, btn){
   if(!requireOnline()) return;
   if(btn){ btn.textContent = "..."; btn.disabled = true; }
   try{
-    const d = await tmdb("/" + type + "/" + id, {});
+    const d = await tmdb("/" + type + "/" + id, { append_to_response: "translations" });
     let record;
     if(type === "tv"){
       const seasons = (d.seasons || [])
@@ -1111,7 +1135,7 @@ async function addItem(id, type, btn){
       record = {
         tmdb_id: d.id,
         media_type: "tv",
-        title: d.name || d.original_name,
+        title: bestTitle(d),
         poster_path: d.poster_path,
         backdrop_path: d.backdrop_path,
         first_air_date: d.first_air_date || null,
@@ -1126,7 +1150,8 @@ async function addItem(id, type, btn){
         show_status: d.status || null,
         next_air_date: (d.next_episode_to_air && d.next_episode_to_air.air_date) || null,
         next_air_label: d.next_episode_to_air ? ("S" + d.next_episode_to_air.season_number + " E" + d.next_episode_to_air.episode_number) : null,
-        last_air_date: d.last_air_date || null
+        last_air_date: d.last_air_date || null,
+        last_air_label: d.last_episode_to_air ? ("S" + d.last_episode_to_air.season_number + " E" + d.last_episode_to_air.episode_number) : null
       };
     }else{
       record = {
@@ -1362,7 +1387,7 @@ async function setRating(n){
 const detailCache = {};
 async function tmdbDetails(type, id){
   const k = type + "-" + id;
-  if(!detailCache[k]) detailCache[k] = tmdb("/" + type + "/" + id, { append_to_response: "credits" });
+  if(!detailCache[k]) detailCache[k] = tmdb("/" + type + "/" + id, { append_to_response: "credits,watch/providers" });
   try{ return await detailCache[k]; }
   catch(e){ delete detailCache[k]; throw e; }
 }
@@ -1372,6 +1397,33 @@ function extraInfoHtml(d){
   if(genres) h += '<div class="genres">' + genres + '</div>';
   if(d.vote_average) h += '<div class="tmdb-vote">&#9733; ' + d.vote_average.toFixed(1) + ' <span style="color:var(--muted);font-weight:400">su TMDB</span></div>';
   if(d.overview) h += '<div class="overview">' + esc(d.overview) + '</div>';
+
+  const wp = d["watch/providers"] && d["watch/providers"].results && d["watch/providers"].results.IT;
+  if(wp){
+    const seen = new Set();
+    const provs = [];
+    for(const group of [wp.flatrate, wp.ads, wp.free]){
+      for(const p of (group || [])){
+        if(seen.has(p.provider_id)) continue;
+        seen.add(p.provider_id);
+        provs.push(p);
+      }
+    }
+    if(provs.length){
+      h += '<h2 class="section" style="margin-top:20px">Dove guardarla</h2><div class="providers">';
+      for(const p of provs.slice(0, 8)){
+        const logo = p.logo_path ? '<img src="' + IMG + p.logo_path + '" alt="" loading="lazy">' : "";
+        h += '<div class="prov">' + logo + esc(p.provider_name) + '</div>';
+      }
+      h += '</div><div class="jw">In streaming in Italia &middot; dati JustWatch</div>';
+    }else if((wp.rent || []).length || (wp.buy || []).length){
+      const names = new Set();
+      for(const p of (wp.rent || []).concat(wp.buy || [])) names.add(p.provider_name);
+      h += '<h2 class="section" style="margin-top:20px">Dove guardarla</h2>' +
+        '<div class="info-rows" style="margin-top:6px">Solo a noleggio o acquisto: <b>' + esc(Array.from(names).slice(0, 5).join(", ")) + '</b></div>' +
+        '<div class="jw">dati JustWatch</div>';
+    }
+  }
 
   const cast = (d.credits && d.credits.cast || []).slice(0, 14);
   if(cast.length){
@@ -1705,6 +1757,8 @@ async function refreshFromTmdb(){
       patch.next_air_date = (d.next_episode_to_air && d.next_episode_to_air.air_date) || null;
       patch.next_air_label = d.next_episode_to_air ? ("S" + d.next_episode_to_air.season_number + " E" + d.next_episode_to_air.episode_number) : null;
       patch.last_air_date = d.last_air_date || null;
+      patch.last_air_label = d.last_episode_to_air ? ("S" + d.last_episode_to_air.season_number + " E" + d.last_episode_to_air.episode_number) : null;
+      it.last_air_label = patch.last_air_label;
       patch.is_cartoon = detectCartoon(d, it.is_anime);
       it.is_cartoon = patch.is_cartoon;
       patch.network = (d.networks && d.networks[0] && d.networks[0].name) || it.network || null;
@@ -1989,7 +2043,7 @@ $("#mInfo").addEventListener("click", () => {
   let cacheKb = 0;
   try{ cacheKb = Math.round((localStorage.getItem("showtime_cache") || "").length / 1024); }catch(e){}
   $("#infoBody").innerHTML =
-    "<b style=\"color:var(--cream)\">ShowTime v16</b><br>" +
+    "<b style=\"color:var(--cream)\">ShowTime v17</b><br>" +
     "Dati di TMDB &middot; salvataggio su Supabase<br>" +
     "Serie: " + nSerie + " &middot; Anime: " + nAnime + " &middot; Film: " + nFilm + "<br>" +
     "Episodi segnati: " + episodes.length.toLocaleString("it-IT") + "<br>" +
@@ -2022,7 +2076,7 @@ $("#btnSaveKey").addEventListener("click", async () => {
 /* ============ AGGIORNAMENTO PROGRAMMAZIONE (in background) ============ */
 let updaterRunning = false;
 async function updateOne(it){
-  const d = await tmdb("/tv/" + it.tmdb_id, {});
+  const d = await tmdb("/tv/" + it.tmdb_id, { append_to_response: "translations" });
   const patch = {
     seasons_json: (d.seasons || []).filter(x => x.season_number > 0 && x.episode_count > 0)
       .map(x => ({ n: x.season_number, c: x.episode_count })),
@@ -2030,9 +2084,12 @@ async function updateOne(it){
     next_air_date: (d.next_episode_to_air && d.next_episode_to_air.air_date) || null,
     next_air_label: d.next_episode_to_air ? ("S" + d.next_episode_to_air.season_number + " E" + d.next_episode_to_air.episode_number) : null,
     last_air_date: d.last_air_date || null,
+    last_air_label: d.last_episode_to_air ? ("S" + d.last_episode_to_air.season_number + " E" + d.last_episode_to_air.episode_number) : null,
     poster_path: d.poster_path || it.poster_path,
     is_anime: it.is_anime || detectAnime(d)
   };
+  const bt = bestTitle(d);
+  if(bt && bt !== it.title) patch.title = bt;
   patch.anime_doubt = (it.anime_doubt === false) ? false : animeDoubtFrom(d, patch.is_anime);
   patch.is_cartoon = detectCartoon(d, patch.is_anime);
   patch.network = (d.networks && d.networks[0] && d.networks[0].name) || it.network || null;
