@@ -830,7 +830,7 @@ function renderTvList(target, animeMode, tab){
   if(tab === "next"){
     const cutoff = daysAgoStr(31);
     function freshKey(it){
-      const act = ((it.last_activity || "") > (it.added_at || "") ? it.last_activity : it.added_at || "").slice(0, 10);
+      const act = (it.last_activity || "").slice(0, 10);
       const air = it.last_air_date || "";
       return act > air ? act : air;
     }
