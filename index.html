@@ -300,6 +300,20 @@ h2.section:first-child{margin-top:2px}
 }
 .ep-check.on{border-color:var(--gold);background:var(--gold);color:#181307}
 .loading-eps{padding:14px;color:var(--muted);font-size:13px;border-top:1px solid var(--line)}
+.genres{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 0}
+.genres span{
+  font-size:11px;color:var(--muted);border:1px solid var(--line);
+  border-radius:999px;padding:4px 10px;letter-spacing:.4px;
+}
+.overview{font-size:14px;line-height:1.65;color:var(--muted);margin-top:14px}
+.tmdb-vote{
+  display:inline-flex;align-items:center;gap:6px;margin-top:12px;
+  font-size:13px;color:var(--gold-light);font-weight:700;
+}
+.add-big{
+  display:block;width:100%;background:var(--gold);color:#181307;font-weight:700;
+  font-size:15px;border-radius:12px;padding:14px;margin-top:16px;text-align:center;
+}
 .ep-block-head{
   display:flex;justify-content:space-between;align-items:center;
   padding:10px 14px;border-top:1px solid var(--line);
@@ -1020,9 +1034,9 @@ async function doSearch(){
         ? '<img class="poster" src="' + IMG + r.poster_path + '" alt="" loading="lazy">'
         : '<div class="poster ph">' + (r.media_type === "tv" ? "&#128250;" : "&#127916;") + '</div>';
       const btn = inLib
-        ? '<button class="add-btn in-lib">In libreria</button>'
-        : '<button class="add-btn" onclick="addItem(' + r.id + ',\u0027' + r.media_type + '\u0027,this)">&#65291; Aggiungi</button>';
-      html += '<div class="card">' + poster +
+        ? '<button class="add-btn in-lib" onclick="event.stopPropagation();openDetail(' + r.id + ',\u0027' + r.media_type + '\u0027)">In libreria</button>'
+        : '<button class="add-btn" onclick="event.stopPropagation();addItem(' + r.id + ',\u0027' + r.media_type + '\u0027,this)">&#65291; Aggiungi</button>';
+      html += '<div class="card" onclick="openPreview(' + r.id + ',\u0027' + r.media_type + '\u0027)">' + poster +
         '<div class="card-body">' +
           '<div class="card-title">' + esc(title) + '</div>' +
           '<div class="card-sub">' + typeLabel + ' &middot; ' + yearOf(date) + '</div>' +
@@ -1234,6 +1248,82 @@ async function setRating(n){
 }
 
 /* ================= DETAIL ================= */
+const detailCache = {};
+async function tmdbDetails(type, id){
+  const k = type + "-" + id;
+  if(!detailCache[k]) detailCache[k] = tmdb("/" + type + "/" + id, {});
+  try{ return await detailCache[k]; }
+  catch(e){ delete detailCache[k]; throw e; }
+}
+function extraInfoHtml(d){
+  let h = "";
+  const genres = (d.genres || []).map(g => '<span>' + esc(g.name) + '</span>').join("");
+  if(genres) h += '<div class="genres">' + genres + '</div>';
+  if(d.vote_average) h += '<div class="tmdb-vote">&#9733; ' + d.vote_average.toFixed(1) + ' <span style="color:var(--muted);font-weight:400">su TMDB</span></div>';
+  if(d.overview) h += '<div class="overview">' + esc(d.overview) + '</div>';
+  return h;
+}
+async function fillDetailExtra(it){
+  const box = $("#detailExtra");
+  if(!box || !navigator.onLine || !tmdbKey()) return;
+  try{
+    const d = await tmdbDetails(it.media_type, it.tmdb_id);
+    const box2 = $("#detailExtra");
+    if(box2 && currentDetail && currentDetail.tmdb_id === it.tmdb_id) box2.innerHTML = extraInfoHtml(d);
+  }catch(e){ console.error(e); }
+}
+
+/* ---- anteprima dalla ricerca ---- */
+async function openPreview(tmdbId, type){
+  const inLib = items.find(i => i.tmdb_id === tmdbId && i.media_type === type);
+  if(inLib){ openDetail(tmdbId, type); return; }
+  if(!requireOnline()) return;
+  const ov = $("#detail");
+  ov.classList.add("open");
+  document.body.style.overflow = "hidden";
+  ov.innerHTML = '<div class="detail-body" style="padding-top:80px"><div class="empty">Carico le informazioni...</div></div>';
+  try{
+    const d = await tmdbDetails(type, tmdbId);
+    const title = type === "tv" ? (d.name || d.original_name) : (d.title || d.original_title);
+    const date = type === "tv" ? d.first_air_date : d.release_date;
+    const bd = d.backdrop_path
+      ? '<img class="backdrop" src="' + IMG_BIG + d.backdrop_path + '" alt="">'
+      : '<div class="backdrop"></div>';
+    let sub = yearOf(date);
+    if(type === "tv"){
+      const nSeas = (d.seasons || []).filter(x => x.season_number > 0 && x.episode_count > 0).length;
+      const nEps = (d.seasons || []).filter(x => x.season_number > 0).reduce((a, x) => a + x.episode_count, 0);
+      sub += " &middot; " + nSeas + " stagioni &middot; " + nEps + " episodi";
+      if(d.networks && d.networks[0]) sub += " &middot; " + esc(d.networks[0].name);
+    }else if(d.runtime){
+      sub += " &middot; " + d.runtime + " min";
+    }
+    ov.innerHTML =
+      '<div class="detail-head">' + bd +
+        '<div class="detail-top">' +
+          '<button class="circle-btn" onclick="closeDetail()" aria-label="Chiudi">&#10005;</button>' +
+          '<span></span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="detail-body">' +
+        '<div class="detail-title">' + esc(title) + '</div>' +
+        '<div class="detail-sub">' + sub + '</div>' +
+        extraInfoHtml(d) +
+        '<button class="add-big" onclick="addFromPreview(' + tmdbId + ',\u0027' + type + '\u0027,this)">&#65291; Aggiungi alla libreria</button>' +
+      '</div>';
+  }catch(e){
+    console.error(e);
+    ov.innerHTML = '<div class="detail-body" style="padding-top:80px"><div class="empty">Errore nel caricamento.<br><button onclick="closeDetail()">Chiudi</button></div></div>';
+  }
+}
+async function addFromPreview(tmdbId, type, btn){
+  btn.textContent = "...";
+  btn.disabled = true;
+  await addItem(tmdbId, type, null);
+  openDetail(tmdbId, type);
+  renderAll();
+}
+
 function openDetail(tmdbId, type){
   const it = items.find(i => i.tmdb_id === tmdbId && i.media_type === type);
   if(!it) return;
@@ -1277,10 +1367,12 @@ function renderDetail(){
     '</div>' +
     '<div class="detail-body">' +
       '<div id="detailHead"></div>' +
+      '<div id="detailExtra"></div>' +
       seasonsHtml +
     '</div>';
   renderDetailHead();
   updateSeasonCounts();
+  fillDetailExtra(it);
 }
 
 function renderDetailHead(){
@@ -1709,7 +1801,7 @@ $("#mInfo").addEventListener("click", () => {
   let cacheKb = 0;
   try{ cacheKb = Math.round((localStorage.getItem("showtime_cache") || "").length / 1024); }catch(e){}
   $("#infoBody").innerHTML =
-    "<b style=\"color:var(--cream)\">ShowTime v13</b><br>" +
+    "<b style=\"color:var(--cream)\">ShowTime v14</b><br>" +
     "Dati di TMDB &middot; salvataggio su Supabase<br>" +
     "Serie: " + nSerie + " &middot; Anime: " + nAnime + " &middot; Film: " + nFilm + "<br>" +
     "Episodi segnati: " + episodes.length.toLocaleString("it-IT") + "<br>" +
