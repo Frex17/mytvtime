@@ -300,6 +300,24 @@ h2.section:first-child{margin-top:2px}
 }
 .ep-check.on{border-color:var(--gold);background:var(--gold);color:#181307}
 .loading-eps{padding:14px;color:var(--muted);font-size:13px;border-top:1px solid var(--line)}
+.subtabs{display:flex;border-bottom:1px solid var(--line);margin:16px 0 14px}
+.subtabs button{
+  flex:1;padding:11px 4px;text-transform:uppercase;letter-spacing:1.3px;
+  font-size:11.5px;font-weight:700;color:var(--muted);border-bottom:2px solid transparent;
+}
+.subtabs button.active{color:var(--cream);border-bottom-color:var(--gold)}
+.cast-row{display:flex;gap:14px;overflow-x:auto;padding:12px 2px 6px;scrollbar-width:none}
+.cast-row::-webkit-scrollbar{display:none}
+.cast-item{flex-shrink:0;width:72px;text-align:center}
+.cast-item img,.cast-item .ph{
+  width:64px;height:64px;border-radius:50%;object-fit:cover;margin:0 auto 6px;
+  background:var(--surface-2);display:flex;align-items:center;justify-content:center;
+  font-size:22px;color:var(--muted);
+}
+.cast-item .cn{font-size:11px;font-weight:700;line-height:1.25}
+.cast-item .cc{font-size:10px;color:var(--muted);line-height:1.25;margin-top:2px}
+.info-rows{margin-top:14px;font-size:13px;line-height:2;color:var(--muted)}
+.info-rows b{color:var(--cream);font-weight:500}
 .genres{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 0}
 .genres span{
   font-size:11px;color:var(--muted);border:1px solid var(--line);
@@ -503,6 +521,15 @@ body.offline #offlineBar{display:block}
     <h3>Dati di sistema</h3>
     <div id="infoBody" style="font-size:13px;line-height:2;color:var(--muted)"></div>
     <button class="save" id="btnInfoClose" style="margin-top:14px">Chiudi</button>
+  </div>
+</div>
+
+<div class="modal-bg" id="prevModal">
+  <div class="modal">
+    <h3>Episodi precedenti</h3>
+    <p>Ci sono <b id="prevCount" style="color:var(--gold-light)">0</b> episodi precedenti non ancora segnati come visti. Vuoi segnare anche quelli?</p>
+    <button class="save" id="prevYes">S&igrave;, segna tutti i precedenti</button>
+    <button class="save" id="prevNo" style="margin-top:8px;background:var(--surface-2);color:var(--gold);border:1.5px solid var(--gold)">No, solo questo episodio</button>
   </div>
 </div>
 
@@ -802,14 +829,20 @@ function renderTvList(target, animeMode, tab){
   let html = "";
   if(tab === "next"){
     const cutoff = daysAgoStr(31);
+    function freshKey(it){
+      const act = ((it.last_activity || "") > (it.added_at || "") ? it.last_activity : it.added_at || "").slice(0, 10);
+      const air = it.last_air_date || "";
+      return act > air ? act : air;
+    }
     const fresh = [], behind = [], notStarted = [];
     for(const x of bucket){
-      if(x.c.p.watched === 0) notStarted.push(x);
-      else if(x.it.last_air_date && x.it.last_air_date >= cutoff) fresh.push(x);
+      if(freshKey(x.it) >= cutoff) fresh.push(x);            // attivita' recente o puntata fresca
+      else if(x.c.p.watched === 0) notStarted.push(x);
       else behind.push(x);
     }
     fresh.sort((a, b) => {
-      if(a.it.last_air_date !== b.it.last_air_date) return a.it.last_air_date > b.it.last_air_date ? -1 : 1;
+      const ka = freshKey(a.it), kb = freshKey(b.it);
+      if(ka !== kb) return ka > kb ? -1 : 1;
       return a.it.title.localeCompare(b.it.title);
     });
     if(fresh.length){
@@ -1082,6 +1115,7 @@ async function addItem(id, type, btn){
         is_anime: isAnime,
         is_cartoon: detectCartoon(d, isAnime),
         network: (d.networks && d.networks[0] && d.networks[0].name) || null,
+        last_activity: new Date().toISOString(),
         anime_doubt: animeDoubtFrom(d, isAnime),
         status: "planned",
         show_status: d.status || null,
@@ -1157,16 +1191,56 @@ async function markNext(tmdbId){
   }
 }
 
+let prevResolve = null;
+function askPrevious(n){
+  return new Promise(res => {
+    prevResolve = res;
+    $("#prevCount").textContent = n;
+    $("#prevModal").classList.add("open");
+  });
+}
+$("#prevYes").addEventListener("click", () => { $("#prevModal").classList.remove("open"); if(prevResolve) prevResolve(true); prevResolve = null; });
+$("#prevNo").addEventListener("click", () => { $("#prevModal").classList.remove("open"); if(prevResolve) prevResolve(false); prevResolve = null; });
+$("#prevModal").addEventListener("click", e => {
+  if(e.target === $("#prevModal")){ $("#prevModal").classList.remove("open"); if(prevResolve) prevResolve(null); prevResolve = null; }
+});
+
+function unwatchedBefore(it, season, ep){
+  const set = watchedSet(it.tmdb_id);
+  const out = [];
+  for(const st of (it.seasons_json || [])){
+    for(let e = 1; e <= st.c; e++){
+      if(st.n > season || (st.n === season && e >= ep)) return out;
+      if(!set.has(st.n + "-" + e)) out.push({ tmdb_id: it.tmdb_id, season: st.n, episode: e });
+    }
+  }
+  return out;
+}
+
 async function setEpisode(tmdbId, season, ep, watched){
   if(!requireOnline()) return;
   try{
     if(watched){
-      await sb("showtime_episodes?on_conflict=user_id,tmdb_id,season,episode", {
-        method: "POST",
-        headers: { "Prefer": "resolution=merge-duplicates" },
-        body: { tmdb_id: tmdbId, season: season, episode: ep }
-      });
-      episodes.push({ tmdb_id: tmdbId, season: season, episode: ep, watched_at: new Date().toISOString() });
+      let rows = [{ tmdb_id: tmdbId, season: season, episode: ep }];
+      const it = items.find(i => i.tmdb_id === tmdbId && i.media_type === "tv");
+      if(it){
+        const before = unwatchedBefore(it, season, ep);
+        if(before.length > 0){
+          const ans = await askPrevious(before.length);
+          if(ans === null) return;                 // annullato: non segnare nulla
+          if(ans === true) rows = before.concat(rows);
+        }
+      }
+      for(let i = 0; i < rows.length; i += 400){
+        await sb("showtime_episodes?on_conflict=user_id,tmdb_id,season,episode", {
+          method: "POST",
+          headers: { "Prefer": "resolution=merge-duplicates" },
+          body: rows.slice(i, i + 400)
+        });
+      }
+      const now = new Date().toISOString();
+      for(const r of rows) episodes.push({ tmdb_id: r.tmdb_id, season: r.season, episode: r.episode, watched_at: now });
+      if(rows.length > 1) toast("Segnati " + rows.length + " episodi");
     }else{
       await sb("showtime_episodes?tmdb_id=eq." + tmdbId + "&season=eq." + season + "&episode=eq." + ep, {
         method: "DELETE"
@@ -1213,13 +1287,12 @@ async function syncStatus(tmdbId){
   const it = items.find(i => i.tmdb_id === tmdbId && i.media_type === "tv");
   if(!it || it.status === "dropped") return;
   const st = statusOf(it);
-  if(st !== it.status){
-    it.status = st;
-    await sb("showtime_items?tmdb_id=eq." + tmdbId + "&media_type=eq.tv", {
-      method: "PATCH",
-      body: { status: st }
-    });
-  }
+  it.status = st;
+  it.last_activity = new Date().toISOString();
+  await sb("showtime_items?tmdb_id=eq." + tmdbId + "&media_type=eq.tv", {
+    method: "PATCH",
+    body: { status: st, last_activity: it.last_activity }
+  });
 }
 
 /* ================= MOVIE ACTIONS ================= */
@@ -1260,7 +1333,7 @@ async function setRating(n){
 const detailCache = {};
 async function tmdbDetails(type, id){
   const k = type + "-" + id;
-  if(!detailCache[k]) detailCache[k] = tmdb("/" + type + "/" + id, {});
+  if(!detailCache[k]) detailCache[k] = tmdb("/" + type + "/" + id, { append_to_response: "credits" });
   try{ return await detailCache[k]; }
   catch(e){ delete detailCache[k]; throw e; }
 }
@@ -1270,7 +1343,43 @@ function extraInfoHtml(d){
   if(genres) h += '<div class="genres">' + genres + '</div>';
   if(d.vote_average) h += '<div class="tmdb-vote">&#9733; ' + d.vote_average.toFixed(1) + ' <span style="color:var(--muted);font-weight:400">su TMDB</span></div>';
   if(d.overview) h += '<div class="overview">' + esc(d.overview) + '</div>';
+
+  const cast = (d.credits && d.credits.cast || []).slice(0, 14);
+  if(cast.length){
+    h += '<h2 class="section" style="margin-top:20px">Cast</h2><div class="cast-row">';
+    for(const c of cast){
+      const img = c.profile_path
+        ? '<img src="' + IMG + c.profile_path + '" alt="" loading="lazy">'
+        : '<div class="ph">&#128100;</div>';
+      h += '<div class="cast-item">' + img +
+        '<div class="cn">' + esc(c.name) + '</div>' +
+        '<div class="cc">' + esc(c.character || "") + '</div></div>';
+    }
+    h += '</div>';
+  }
+
+  const rows = [];
+  const isTv = !!d.number_of_seasons;
+  if(isTv && d.created_by && d.created_by.length){
+    rows.push("<b>Creata da</b> " + esc(d.created_by.map(x => x.name).join(", ")));
+  }
+  const STATI = { "Returning Series": "In corso", "Ended": "Conclusa", "Canceled": "Cancellata",
+                  "In Production": "In produzione", "Planned": "Annunciata", "Released": "Uscito" };
+  if(d.status) rows.push("<b>Stato</b> " + (STATI[d.status] || esc(d.status)));
+  if(isTv && d.networks && d.networks[0]) rows.push("<b>Canale</b> " + esc(d.networks[0].name));
+  const date = isTv ? d.first_air_date : d.release_date;
+  if(date) rows.push("<b>Prima uscita</b> " + date.split("-").reverse().join("/"));
+  if(isTv) rows.push("<b>Stagioni</b> " + d.number_of_seasons + " &middot; <b>Episodi</b> " + d.number_of_episodes);
+  if(!isTv && d.runtime) rows.push("<b>Durata</b> " + d.runtime + " min");
+  const paesi = (d.production_countries || []).map(x => x.name).join(", ");
+  if(paesi) rows.push("<b>Paese</b> " + esc(paesi));
+  if(rows.length) h += '<div class="info-rows">' + rows.join("<br>") + '</div>';
   return h;
+}
+function goDetailTab(which, btn){
+  document.querySelectorAll(".subtabs button").forEach(b => b.classList.toggle("active", b === btn));
+  $("#dtEps").style.display = which === "eps" ? "block" : "none";
+  $("#dtInfo").style.display = which === "info" ? "block" : "none";
 }
 async function fillDetailExtra(it){
   const box = $("#detailExtra");
@@ -1278,7 +1387,11 @@ async function fillDetailExtra(it){
   try{
     const d = await tmdbDetails(it.media_type, it.tmdb_id);
     const box2 = $("#detailExtra");
-    if(box2 && currentDetail && currentDetail.tmdb_id === it.tmdb_id) box2.innerHTML = extraInfoHtml(d);
+    if(box2 && currentDetail && currentDetail.tmdb_id === it.tmdb_id){
+      box2.classList.remove("empty");
+      box2.style.padding = "";
+      box2.innerHTML = extraInfoHtml(d);
+    }
   }catch(e){ console.error(e); }
 }
 
@@ -1376,8 +1489,11 @@ function renderDetail(){
     '</div>' +
     '<div class="detail-body">' +
       '<div id="detailHead"></div>' +
-      '<div id="detailExtra"></div>' +
-      seasonsHtml +
+      (it.media_type === "tv"
+        ? '<div class="subtabs"><button class="active" onclick="goDetailTab(\u0027eps\u0027,this)">Episodi</button><button onclick="goDetailTab(\u0027info\u0027,this)">Info</button></div>' +
+          '<div id="dtEps">' + seasonsHtml + '</div>' +
+          '<div id="dtInfo" style="display:none"><div id="detailExtra" class="empty" style="padding:24px">Carico le informazioni...</div></div>'
+        : '<div id="detailExtra"></div>') +
     '</div>';
   renderDetailHead();
   updateSeasonCounts();
@@ -1810,7 +1926,7 @@ $("#mInfo").addEventListener("click", () => {
   let cacheKb = 0;
   try{ cacheKb = Math.round((localStorage.getItem("showtime_cache") || "").length / 1024); }catch(e){}
   $("#infoBody").innerHTML =
-    "<b style=\"color:var(--cream)\">ShowTime v14</b><br>" +
+    "<b style=\"color:var(--cream)\">ShowTime v15</b><br>" +
     "Dati di TMDB &middot; salvataggio su Supabase<br>" +
     "Serie: " + nSerie + " &middot; Anime: " + nAnime + " &middot; Film: " + nFilm + "<br>" +
     "Episodi segnati: " + episodes.length.toLocaleString("it-IT") + "<br>" +
