@@ -418,6 +418,50 @@ h2.section:first-child{margin-top:2px}
   border-radius:12px;padding:13px;
 }
 
+/* ---------- replay annuale ---------- */
+#replay{position:fixed;inset:0;z-index:110;background:#0B0906;display:none}
+#replay.open{display:block}
+.rp-close{
+  position:absolute;top:calc(14px + env(safe-area-inset-top));right:14px;z-index:5;
+  width:38px;height:38px;border-radius:50%;background:rgba(242,234,217,.08);
+  color:var(--cream);font-size:17px;display:flex;align-items:center;justify-content:center;
+}
+.rp-track{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;height:100%;scrollbar-width:none}
+.rp-track::-webkit-scrollbar{display:none}
+.rp-slide{
+  flex:0 0 100%;scroll-snap-align:center;display:flex;flex-direction:column;
+  justify-content:center;align-items:center;text-align:center;
+  padding:50px 30px calc(60px + env(safe-area-inset-bottom));gap:6px;
+}
+.rp-kicker{font-size:12px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);font-weight:700}
+.rp-big{font-family:var(--serif);font-size:76px;font-weight:700;color:var(--gold);line-height:1}
+.rp-med{font-family:var(--serif);font-size:40px;font-weight:700;color:var(--cream);line-height:1.15}
+.rp-label{font-size:15px;color:var(--muted);max-width:300px;line-height:1.5}
+.rp-emoji{font-size:80px;line-height:1.1}
+.rp-hint{position:absolute;bottom:calc(20px + env(safe-area-inset-bottom));left:0;right:0;text-align:center;font-size:11px;color:var(--muted);letter-spacing:1px}
+.rp-top{width:100%;max-width:330px;margin-top:10px}
+.rp-top .r{display:flex;align-items:center;gap:12px;padding:8px 0;text-align:left}
+.rp-top .r img{width:40px;height:60px;border-radius:6px;object-fit:cover}
+.rp-top .r .n{font-family:var(--serif);font-size:22px;color:var(--gold);width:24px;font-weight:700}
+.rp-top .r .t{flex:1;font-size:14px;font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rp-top .r .c{font-size:12px;color:var(--muted)}
+.rp-bars{display:flex;align-items:flex-end;gap:6px;height:120px;margin-top:16px}
+.rp-bars div{width:16px;background:var(--surface-2);border-radius:4px 4px 0 0;position:relative}
+.rp-bars div.max{background:var(--gold)}
+.rp-bars span{position:absolute;bottom:-20px;left:0;right:0;font-size:9px;color:var(--muted)}
+
+/* ---------- heatmap ---------- */
+.hm-wrap{overflow-x:auto;padding:8px 2px;scrollbar-width:none}
+.hm-wrap::-webkit-scrollbar{display:none}
+.hm{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,11px);gap:3px;width:max-content}
+.hm div{width:11px;height:11px;border-radius:2.5px;background:var(--surface-2)}
+.hm .l1{background:rgba(184,150,62,.3)}
+.hm .l2{background:rgba(184,150,62,.55)}
+.hm .l3{background:rgba(184,150,62,.8)}
+.hm .l4{background:var(--gold-light)}
+.hm-legend{display:flex;align-items:center;gap:4px;justify-content:flex-end;font-size:10px;color:var(--muted);margin-top:6px}
+.hm-legend i{width:10px;height:10px;border-radius:2px;display:inline-block;background:var(--surface-2)}
+
 /* ---------- offline ---------- */
 #offlineBar{
   display:none;background:var(--surface-2);color:var(--gold-light);
@@ -493,6 +537,9 @@ body.offline #offlineBar{display:block}
   <section class="view" id="view-stats">
     <h2 class="section">Le tue statistiche</h2>
     <div class="stat-grid" id="statGrid"></div>
+    <h2 class="section">Un anno di visioni</h2>
+    <div class="hm-wrap"><div class="hm" id="heatmap"></div></div>
+    <div class="hm-legend">meno <i></i><i class="hm-cell" style="background:rgba(184,150,62,.3)"></i><i style="background:rgba(184,150,62,.55)"></i><i style="background:rgba(184,150,62,.8)"></i><i style="background:#D8BC72"></i> pi&ugrave;</div>
   </section>
 
 </main>
@@ -546,6 +593,7 @@ body.offline #offlineBar{display:block}
   <button id="mTheme">&#9728;&#65039; Tema chiaro</button>
   <button id="mRefresh">&#128260; Aggiorna programmazione</button>
   <button id="mExport">&#128190; Esporta backup</button>
+  <button id="mReplay">&#127873; Replay</button>
   <button id="mInfo">&#128241; Dati di sistema</button>
   <button id="mLogout">&#128682; Esci</button>
 </div>
@@ -556,6 +604,12 @@ body.offline #offlineBar{display:block}
     <div id="infoBody" style="font-size:13px;line-height:2;color:var(--muted)"></div>
     <button class="save" id="btnInfoClose" style="margin-top:14px">Chiudi</button>
   </div>
+</div>
+
+<div id="replay">
+  <button class="rp-close" onclick="closeReplay()">&#10005;</button>
+  <div class="rp-track" id="rpTrack"></div>
+  <div class="rp-hint">Scorri &#8594;</div>
 </div>
 
 <div class="modal-bg" id="prevModal">
@@ -1376,10 +1430,11 @@ async function markMovie(tmdbId, watched){
   const it = items.find(i => i.tmdb_id === tmdbId && i.media_type === "movie");
   if(!it) return;
   it.status = watched ? "completed" : "planned";
+  if(watched) it.last_activity = new Date().toISOString();
   try{
     await sb("showtime_items?tmdb_id=eq." + tmdbId + "&media_type=eq.movie", {
       method: "PATCH",
-      body: { status: it.status }
+      body: watched ? { status: it.status, last_activity: it.last_activity } : { status: it.status }
     });
     renderAll();
     toast(watched ? "Film segnato come visto" : "Riportato in Da vedere");
@@ -2018,12 +2073,176 @@ document.addEventListener("click", e => {
   }
 }, true);
 
+/* ================= REPLAY ANNUALE ================= */
+function replayYearAvailable(){
+  const forced = new URLSearchParams(location.search).get("replay");
+  if(forced) return parseInt(forced);
+  const now = new Date();
+  const m = now.getMonth() + 1;
+  if(m === 12) return now.getFullYear();
+  if(m === 1) return now.getFullYear() - 1;
+  return null;
+}
+function closeReplay(){
+  $("#replay").classList.remove("open");
+  document.body.style.overflow = "";
+}
+const PERSONAS = [
+  { ids: [10765, 14], name: "Il Mago", emoji: "&#129497;", desc: "Fantasy e mondi impossibili: la magia \u00E8 casa tua." },
+  { ids: [878], name: "Il Viaggiatore Spaziale", emoji: "&#128640;", desc: "Il futuro non ti spaventa: lo guardi in anteprima." },
+  { ids: [16], name: "L\u2019Otaku", emoji: "&#127841;", desc: "Un anno a ritmo di sigle e archi narrativi infiniti." },
+  { ids: [35], name: "L\u2019Anima della Festa", emoji: "&#128514;", desc: "Se non fa ridere, non vale la pena guardarlo." },
+  { ids: [80, 9648, 53], name: "Il Detective", emoji: "&#128373;&#65039;", desc: "Nessun colpevole ti sfugge, mai." },
+  { ids: [10759, 28, 12], name: "L\u2019Avventuriero", emoji: "&#9876;&#65039;", desc: "Adrenalina e azione: fermo mai." },
+  { ids: [27], name: "Il Coraggioso", emoji: "&#128123;", desc: "Il buio non ti ha mai fatto paura. Quasi." },
+  { ids: [10749], name: "Il Romantico", emoji: "&#128152;", desc: "Ogni storia d\u2019amore merita il tuo cuore." },
+  { ids: [99], name: "Il Professore", emoji: "&#127891;", desc: "Guardi per imparare, e impari guardando." },
+  { ids: [18], name: "Il Cuore Tenero", emoji: "&#127917;", desc: "I grandi drammi ti trovano sempre in prima fila." },
+  { ids: [10751, 10762], name: "L\u2019Eterno Bambino", emoji: "&#129528;", desc: "La meraviglia non ha et\u00E0." },
+  { ids: [10768], name: "Lo Stratega", emoji: "&#9823;&#65039;", desc: "Intrighi, potere e mosse a lungo termine." }
+];
+const MESI_FULL = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
+
+async function openReplay(){
+  $("#menu").classList.remove("open");
+  const y = replayYearAvailable();
+  if(!y){ toast("Il Replay si sblocca il 1\u00B0 dicembre \u2728"); return; }
+  if(!requireOnline()) return;
+  const ov = $("#replay");
+  ov.classList.add("open");
+  document.body.style.overflow = "hidden";
+  $("#rpTrack").innerHTML = '<div class="rp-slide"><div class="rp-label">Preparo il tuo Replay ' + y + '...</div></div>';
+  try{
+    const eps = await sbAll("showtime_episodes?select=tmdb_id,watched_at&watched_at=gte." + y + "-01-01&watched_at=lt." + (y + 1) + "-01-01&order=watched_at.asc");
+    buildReplay(y, eps);
+  }catch(e){
+    console.error(e);
+    $("#rpTrack").innerHTML = '<div class="rp-slide"><div class="rp-label">Errore nel caricamento. Riprova.</div></div>';
+  }
+}
+
+async function buildReplay(y, eps){
+  const byShow = {}, byMonth = new Array(12).fill(0), byDay = {};
+  for(const e of eps){
+    byShow[e.tmdb_id] = (byShow[e.tmdb_id] || 0) + 1;
+    const d = e.watched_at.slice(0, 10);
+    byDay[d] = (byDay[d] || 0) + 1;
+    byMonth[parseInt(e.watched_at.slice(5, 7)) - 1]++;
+  }
+  const showOf = id => items.find(i => i.tmdb_id === parseInt(id) && i.media_type === "tv");
+  let minutes = 0, animeEps = 0;
+  for(const id in byShow){
+    const it = showOf(id);
+    minutes += byShow[id] * ((it && it.runtime) || (it && it.is_anime ? 24 : 40));
+    if(it && it.is_anime) animeEps += byShow[id];
+  }
+  const movies = items.filter(i => i.media_type === "movie" && i.status === "completed" &&
+    (i.last_activity || "").slice(0, 4) === "" + y);
+  for(const m of movies) minutes += m.runtime || 110;
+
+  const top = Object.entries(byShow).sort((a, b) => b[1] - a[1]).slice(0, 5)
+    .map(x => ({ it: showOf(x[0]), n: x[1] })).filter(x => x.it);
+
+  const completedInYear = items.filter(i => {
+    if(i.media_type !== "tv" || statusOf(i) !== "completed") return false;
+    return byShow[i.tmdb_id] > 0;
+  }).length;
+
+  let recordDay = null, recordN = 0;
+  for(const d in byDay){ if(byDay[d] > recordN){ recordN = byDay[d]; recordDay = d; } }
+  const maxMonth = byMonth.indexOf(Math.max.apply(null, byMonth));
+
+  // persona: generi pesati sugli show piu' visti
+  let persona = null;
+  try{
+    const gw = {};
+    for(const x of top.slice(0, 8)){
+      const d = await tmdbDetails("tv", x.it.tmdb_id);
+      for(const g of (d.genres || [])) gw[g.id] = (gw[g.id] || 0) + x.n;
+    }
+    let best = null, bestW = 0;
+    for(const p of PERSONAS){
+      const w = p.ids.reduce((a, id) => a + (gw[id] || 0), 0);
+      if(w > bestW){ bestW = w; best = p; }
+    }
+    persona = best;
+  }catch(e){ console.error(e); }
+  if(!persona && animeEps > eps.length / 2) persona = PERSONAS[2];
+
+  const hours = Math.round(minutes / 60);
+  const days = (minutes / 1440).toFixed(1);
+  const slides = [];
+  slides.push('<div class="rp-slide"><div class="rp-emoji">&#10024;</div><div class="rp-kicker">ShowTime Replay</div><div class="rp-med">Il tuo ' + y + '</div><div class="rp-label">Un anno di serie, anime e film: vediamo com\u2019\u00E8 andata.</div></div>');
+  slides.push('<div class="rp-slide"><div class="rp-kicker">Tempo davanti allo schermo</div><div class="rp-big">' + hours.toLocaleString("it-IT") + '</div><div class="rp-label">ore di visione &middot; ' + days + ' giorni interi</div></div>');
+  slides.push('<div class="rp-slide"><div class="rp-kicker">I numeri</div><div class="rp-big">' + eps.length.toLocaleString("it-IT") + '</div><div class="rp-label">puntate viste' + (animeEps ? ' (di cui ' + animeEps.toLocaleString("it-IT") + ' anime)' : '') + (movies.length ? ' &middot; ' + movies.length + ' film' : '') + (completedInYear ? ' &middot; ' + completedInYear + ' serie completate' : '') + '</div></div>');
+  if(top.length){
+    let rows = "";
+    top.forEach((x, i) => {
+      const img = x.it.poster_path ? '<img src="' + IMG + x.it.poster_path + '" alt="">' : '<div style="width:40px;height:60px;border-radius:6px;background:var(--surface-2)"></div>';
+      rows += '<div class="r"><span class="n">' + (i + 1) + '</span>' + img + '<span class="t">' + esc(x.it.title) + '</span><span class="c">' + x.n + ' ep</span></div>';
+    });
+    slides.push('<div class="rp-slide"><div class="rp-kicker">Le tue serie dell\u2019anno</div><div class="rp-top">' + rows + '</div></div>');
+  }
+  if(persona){
+    slides.push('<div class="rp-slide"><div class="rp-kicker">Il tuo titolo del ' + y + '</div><div class="rp-emoji">' + persona.emoji + '</div><div class="rp-med">' + persona.name + '</div><div class="rp-label">' + persona.desc + '</div></div>');
+  }
+  if(eps.length){
+    let bars = "";
+    const mx = Math.max.apply(null, byMonth) || 1;
+    byMonth.forEach((v, i) => {
+      bars += '<div class="' + (i === maxMonth ? "max" : "") + '" style="height:' + Math.max(4, Math.round(v / mx * 110)) + 'px"><span>' + MESI_FULL[i][0] + '</span></div>';
+    });
+    slides.push('<div class="rp-slide"><div class="rp-kicker">Il mese pi\u00F9 intenso</div><div class="rp-med">' + MESI_FULL[maxMonth] + '</div><div class="rp-label">' + byMonth[maxMonth] + ' puntate</div><div class="rp-bars">' + bars + '</div></div>');
+  }
+  if(recordDay){
+    slides.push('<div class="rp-slide"><div class="rp-kicker">Il giorno record</div><div class="rp-big">' + recordN + '</div><div class="rp-label">puntate in un solo giorno, il ' + recordDay.split("-").reverse().join("/") + '. Maratona leggendaria. &#127942;</div></div>');
+  }
+  slides.push('<div class="rp-slide"><div class="rp-emoji">&#127942;</div><div class="rp-med">Che anno!</div><div class="rp-label">Ci vediamo sul divano nel ' + (y + 1) + '. &#127871;</div></div>');
+  $("#rpTrack").innerHTML = slides.join("");
+  $("#rpTrack").scrollLeft = 0;
+}
+$("#mReplay").addEventListener("click", openReplay);
+
+/* ================= HEATMAP ================= */
+let hmLoaded = false;
+async function loadHeatmap(){
+  if(hmLoaded || !navigator.onLine) return;
+  hmLoaded = true;
+  try{
+    const from = new Date(Date.now() - 370 * 86400000).toISOString().slice(0, 10);
+    const rows = await sbAll("showtime_episodes?select=watched_at&watched_at=gte." + from + "&order=watched_at.asc");
+    const counts = {};
+    for(const r of rows){
+      const d = r.watched_at.slice(0, 10);
+      counts[d] = (counts[d] || 0) + 1;
+    }
+    // parti dal lunedi' di ~52 settimane fa
+    let start = new Date(Date.now() - 364 * 86400000);
+    while(start.getDay() !== 1) start.setDate(start.getDate() - 1);
+    const today = todayStr();
+    let html = "";
+    const cur = new Date(start);
+    while(true){
+      const ds = cur.toISOString().slice(0, 10);
+      if(ds > today) break;
+      const n = counts[ds] || 0;
+      const lvl = n === 0 ? "" : n <= 1 ? "l1" : n <= 3 ? "l2" : n <= 6 ? "l3" : "l4";
+      html += '<div class="' + lvl + '" title="' + ds.split("-").reverse().join("/") + ": " + n + '"></div>';
+      cur.setDate(cur.getDate() + 1);
+    }
+    $("#heatmap").innerHTML = html;
+    const wrap = document.querySelector(".hm-wrap");
+    if(wrap) wrap.scrollLeft = wrap.scrollWidth;
+  }catch(e){ console.error(e); hmLoaded = false; }
+}
+
 /* ================= NAV / UI ================= */
 function goView(name){
   document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
   $("#view-" + name).classList.add("active");
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.v === name));
   if(name === "cerca") setTimeout(()=>$("#searchInput").focus(), 100);
+  if(name === "stats") loadHeatmap();
 }
 document.querySelectorAll("nav button").forEach(b => {
   b.addEventListener("click", () => goView(b.dataset.v));
@@ -2098,7 +2317,7 @@ $("#mInfo").addEventListener("click", () => {
   let cacheKb = 0;
   try{ cacheKb = Math.round((localStorage.getItem("showtime_cache") || "").length / 1024); }catch(e){}
   $("#infoBody").innerHTML =
-    "<b style=\"color:var(--cream)\">ShowTime v18</b><br>" +
+    "<b style=\"color:var(--cream)\">ShowTime v19</b><br>" +
     "Dati di TMDB &middot; salvataggio su Supabase<br>" +
     "Serie: " + nSerie + " &middot; Anime: " + nAnime + " &middot; Film: " + nFilm + "<br>" +
     "Episodi segnati: " + episodes.length.toLocaleString("it-IT") + "<br>" +
