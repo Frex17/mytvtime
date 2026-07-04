@@ -471,10 +471,19 @@ body.offline #offlineBar{display:block}
     <div class="wordmark" style="font-size:38px;text-align:center;margin-bottom:6px"><span class="gold">Show</span>Time</div>
     <p style="text-align:center;color:var(--muted);font-size:14px;margin-bottom:28px">Il tuo diario di serie, anime e film</p>
     <div class="modal" style="border-radius:18px" id="loginBox">
-      <h3>Accedi</h3>
-      <p>Inserisci la tua email: ti mandiamo un link, lo apri e sei dentro. Niente password.</p>
-      <input type="email" id="loginEmail" placeholder="La tua email" autocomplete="email">
-      <button class="save" id="btnLogin">Inviami il link di accesso</button>
+      <div id="loginStep1">
+        <h3>Accedi</h3>
+        <p>Inserisci la tua email: ti mandiamo un codice di accesso. Niente password.</p>
+        <input type="email" id="loginEmail" placeholder="La tua email" autocomplete="email">
+        <button class="save" id="btnLogin">Inviami il codice</button>
+      </div>
+      <div id="loginStep2" style="display:none">
+        <h3>Controlla la posta</h3>
+        <p>Ti abbiamo inviato un <b>codice a 6 cifre</b>. Scrivilo qui sotto (se non arriva, guarda nello spam).</p>
+        <input type="text" id="otpInput" placeholder="123456" inputmode="numeric" autocomplete="one-time-code" maxlength="6" style="text-align:center;font-size:22px;letter-spacing:8px">
+        <button class="save" id="btnVerify">Entra</button>
+        <p style="margin-top:10px;text-align:center"><a href="#" id="otpBack" style="color:var(--muted);font-size:13px">Cambia email o rimanda il codice</a></p>
+      </div>
       <p id="loginMsg" style="margin-top:12px"></p>
     </div>
   </div>
@@ -1889,20 +1898,43 @@ async function updateSchedules(){
 /* ================= LOGIN ================= */
 function showLogin(){ $("#loginOverlay").classList.add("open"); document.body.style.overflow = "hidden"; }
 function hideLogin(){ $("#loginOverlay").classList.remove("open"); document.body.style.overflow = ""; }
+let pendingEmail = null;
 $("#btnLogin").addEventListener("click", async () => {
   const email = $("#loginEmail").value.trim();
   if(!email){ $("#loginMsg").textContent = "Scrivi la tua email"; return; }
   $("#btnLogin").disabled = true;
-  const r = await sbClient.auth.signInWithOtp({
-    email: email,
-    options: { emailRedirectTo: location.origin + location.pathname }
-  });
+  $("#loginMsg").textContent = "Invio in corso...";
+  const r = await sbClient.auth.signInWithOtp({ email: email });
+  $("#btnLogin").disabled = false;
   if(r.error){
     $("#loginMsg").textContent = "Errore: " + r.error.message;
-    $("#btnLogin").disabled = false;
   }else{
-    $("#loginMsg").innerHTML = "<span style=\"color:var(--gold-light)\">Fatto! Controlla la posta e apri il link da questo dispositivo.</span>";
+    pendingEmail = email;
+    $("#loginStep1").style.display = "none";
+    $("#loginStep2").style.display = "block";
+    $("#loginMsg").textContent = "";
+    setTimeout(() => $("#otpInput").focus(), 200);
   }
+});
+$("#btnVerify").addEventListener("click", async () => {
+  const code = $("#otpInput").value.trim();
+  if(code.length !== 6){ $("#loginMsg").textContent = "Il codice ha 6 cifre"; return; }
+  $("#btnVerify").disabled = true;
+  $("#loginMsg").textContent = "Verifica in corso...";
+  const r = await sbClient.auth.verifyOtp({ email: pendingEmail, token: code, type: "email" });
+  $("#btnVerify").disabled = false;
+  if(r.error){
+    $("#loginMsg").textContent = "Codice non valido o scaduto: riprova o rimandalo.";
+  }
+  // se il codice e' giusto, onAuthStateChange chiude il login da solo
+});
+$("#otpInput").addEventListener("keydown", e => { if(e.key === "Enter") $("#btnVerify").click(); });
+$("#otpBack").addEventListener("click", e => {
+  e.preventDefault();
+  $("#loginStep2").style.display = "none";
+  $("#loginStep1").style.display = "block";
+  $("#otpInput").value = "";
+  $("#loginMsg").textContent = "";
 });
 $("#mLogout").addEventListener("click", async () => {
   $("#menu").classList.remove("open");
