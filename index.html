@@ -324,6 +324,27 @@ h2.section:first-child{margin-top:2px}
 }
 .prov img{width:22px;height:22px;border-radius:6px}
 .jw{font-size:10px;color:var(--muted);margin-top:6px}
+.trailer{
+  position:relative;border-radius:14px;overflow:hidden;margin-top:12px;
+  aspect-ratio:16/9;background:#000;cursor:pointer;border:1px solid var(--line);
+}
+.trailer img{width:100%;height:100%;object-fit:cover;opacity:.8;display:block}
+.trailer iframe{width:100%;height:100%;border:0;display:block}
+.trailer .playbtn{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  width:60px;height:60px;border-radius:50%;background:rgba(16,14,11,.75);
+  border:2px solid var(--gold);color:var(--gold);font-size:24px;
+  display:flex;align-items:center;justify-content:center;padding-left:5px;
+}
+.sim-row{display:flex;gap:12px;overflow-x:auto;padding:12px 2px 6px;scrollbar-width:none}
+.sim-row::-webkit-scrollbar{display:none}
+.sim-item{flex-shrink:0;width:96px;cursor:pointer}
+.sim-item img,.sim-item .ph{
+  width:96px;height:144px;border-radius:10px;object-fit:cover;background:var(--surface-2);
+  display:flex;align-items:center;justify-content:center;font-size:26px;color:var(--muted);
+}
+.sim-item .st{font-size:11px;font-weight:700;margin-top:6px;line-height:1.3;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .info-rows{margin-top:14px;font-size:13px;line-height:2;color:var(--muted)}
 .info-rows b{color:var(--cream);font-weight:500}
 .genres{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 0}
@@ -1387,7 +1408,7 @@ async function setRating(n){
 const detailCache = {};
 async function tmdbDetails(type, id){
   const k = type + "-" + id;
-  if(!detailCache[k]) detailCache[k] = tmdb("/" + type + "/" + id, { append_to_response: "credits,watch/providers" });
+  if(!detailCache[k]) detailCache[k] = tmdb("/" + type + "/" + id, { append_to_response: "credits,watch/providers,videos,recommendations" });
   try{ return await detailCache[k]; }
   catch(e){ delete detailCache[k]; throw e; }
 }
@@ -1397,6 +1418,20 @@ function extraInfoHtml(d){
   if(genres) h += '<div class="genres">' + genres + '</div>';
   if(d.vote_average) h += '<div class="tmdb-vote">&#9733; ' + d.vote_average.toFixed(1) + ' <span style="color:var(--muted);font-weight:400">su TMDB</span></div>';
   if(d.overview) h += '<div class="overview">' + esc(d.overview) + '</div>';
+
+  const vids = (d.videos && d.videos.results || []).filter(v => v.site === "YouTube" && (v.type === "Trailer" || v.type === "Teaser"));
+  if(vids.length){
+    vids.sort((a, b) => {
+      const score = v => (v.type === "Trailer" ? 2 : 0) + (v.iso_639_1 === "it" ? 1 : 0);
+      return score(b) - score(a);
+    });
+    const v = vids[0];
+    h += '<h2 class="section" style="margin-top:20px">Trailer</h2>' +
+      '<div class="trailer" onclick="playTrailer(this,\u0027' + esc(v.key) + '\u0027)">' +
+        '<img src="https://img.youtube.com/vi/' + esc(v.key) + '/hqdefault.jpg" alt="" loading="lazy">' +
+        '<div class="playbtn">&#9654;</div>' +
+      '</div>';
+  }
 
   const wp = d["watch/providers"] && d["watch/providers"].results && d["watch/providers"].results.IT;
   if(wp){
@@ -1455,7 +1490,27 @@ function extraInfoHtml(d){
   const paesi = (d.production_countries || []).map(x => x.name).join(", ");
   if(paesi) rows.push("<b>Paese</b> " + esc(paesi));
   if(rows.length) h += '<div class="info-rows">' + rows.join("<br>") + '</div>';
+
+  const recs = (d.recommendations && d.recommendations.results || []).slice(0, 12);
+  if(recs.length){
+    h += '<h2 class="section" style="margin-top:20px">Se ti &egrave; piaciuta questa...</h2><div class="sim-row">';
+    for(const r of recs){
+      const rt = r.media_type || (isTv ? "tv" : "movie");
+      const rtitle = r.name || r.title || "";
+      const rimg = r.poster_path
+        ? '<img src="' + IMG + r.poster_path + '" alt="" loading="lazy">'
+        : '<div class="ph">&#127909;</div>';
+      h += '<div class="sim-item" onclick="openPreview(' + r.id + ',\u0027' + rt + '\u0027)">' +
+        rimg + '<div class="st">' + esc(rtitle) + '</div></div>';
+    }
+    h += '</div>';
+  }
   return h;
+}
+function playTrailer(el, key){
+  event.stopPropagation();
+  el.innerHTML = '<iframe src="https://www.youtube-nocookie.com/embed/' + key + '?autoplay=1&rel=0" allow="autoplay; encrypted-media; fullscreen" allowfullscreen></iframe>';
+  el.style.cursor = "default";
 }
 function goDetailTab(which, btn){
   document.querySelectorAll(".subtabs button").forEach(b => b.classList.toggle("active", b === btn));
@@ -2043,7 +2098,7 @@ $("#mInfo").addEventListener("click", () => {
   let cacheKb = 0;
   try{ cacheKb = Math.round((localStorage.getItem("showtime_cache") || "").length / 1024); }catch(e){}
   $("#infoBody").innerHTML =
-    "<b style=\"color:var(--cream)\">ShowTime v17</b><br>" +
+    "<b style=\"color:var(--cream)\">ShowTime v18</b><br>" +
     "Dati di TMDB &middot; salvataggio su Supabase<br>" +
     "Serie: " + nSerie + " &middot; Anime: " + nAnime + " &middot; Film: " + nFilm + "<br>" +
     "Episodi segnati: " + episodes.length.toLocaleString("it-IT") + "<br>" +
