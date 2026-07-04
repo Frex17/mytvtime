@@ -213,15 +213,27 @@ async function run(){
   let done = 0, errs = 0;
   async function refreshOne(it){
     try{
-      const d = await tmdb("/tv/" + it.tmdb_id, {});
+      const d = await tmdb("/tv/" + it.tmdb_id, { append_to_response: "translations" });
       const patch = {
         seasons_json: (d.seasons || []).filter(x => x.season_number > 0 && x.episode_count > 0)
           .map(x => ({ n: x.season_number, c: x.episode_count })),
         show_status: d.status || null,
         next_air_date: (d.next_episode_to_air && d.next_episode_to_air.air_date) || null,
         next_air_label: d.next_episode_to_air ? ("S" + d.next_episode_to_air.season_number + " E" + d.next_episode_to_air.episode_number) : null,
-        last_air_date: d.last_air_date || null
+        last_air_date: d.last_air_date || null,
+        last_air_label: d.last_episode_to_air ? ("S" + d.last_episode_to_air.season_number + " E" + d.last_episode_to_air.episode_number) : null
       };
+      const CJK = /[\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF]/;
+      const raw = d.name || d.original_name || "";
+      if(CJK.test(raw)){
+        const trs = (d.translations && d.translations.translations) || [];
+        for(const lang of ["it", "en"]){
+          const t = trs.find(x => x.iso_639_1 === lang && x.data && x.data.name);
+          if(t && t.data.name && !CJK.test(t.data.name)){ patch.title = t.data.name; break; }
+        }
+      }else if(raw && raw !== it.title){
+        patch.title = raw;
+      }
       const ANIME_ORIGINS = ["JP","CN","KR","TW"], ANIME_LANGS = ["ja","zh","ko"];
       const genres = d.genres || [];
       const origins = d.origin_country || [];
