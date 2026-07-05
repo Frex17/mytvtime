@@ -1938,7 +1938,7 @@ async function refreshFromTmdb(){
   const it = currentDetail;
   if(!it) return;
   try{
-    const d = await tmdb("/" + it.media_type + "/" + it.tmdb_id, {});
+    const d = await tmdb("/" + it.media_type + "/" + it.tmdb_id, { append_to_response: "translations" });
     const patch = {};
     if(it.media_type === "tv"){
       patch.seasons_json = (d.seasons || [])
@@ -1966,6 +1966,10 @@ async function refreshFromTmdb(){
       patch.runtime = d.runtime || it.runtime;
       patch.poster_path = d.poster_path;
       patch.backdrop_path = d.backdrop_path;
+      patch.is_anime = detectAnime(d);
+      it.is_anime = patch.is_anime;
+      const bt = bestTitle(d);
+      if(bt && bt !== it.title){ patch.title = bt; it.title = bt; }
     }
     it.runtime = patch.runtime;
     it.poster_path = patch.poster_path;
