@@ -2124,7 +2124,11 @@ document.addEventListener("pointermove", e => {
   }
   if(!swHoriz) return;
   const hasL = !!swEl.dataset.actLeft, hasR = !!swEl.dataset.act;
-  swDx = Math.max(hasL ? -120 : 0, Math.min(dx, hasR ? 120 : 0));
+  // le card "next" possono scorrere per tutta la larghezza (swipe totale come TV Time);
+  // gli altri (episodi, film, ecc.) restano col fondo a 120px
+  const isNextCard = (swEl.dataset.act || "").startsWith("next:");
+  const maxR = isNextCard ? swWrap.offsetWidth : 120;
+  swDx = Math.max(hasL ? -120 : 0, Math.min(dx, hasR ? maxR : 0));
   swWrap.classList.toggle("dir-r", swDx > 0);
   swWrap.classList.toggle("dir-l", swDx < 0);
   swEl.style.transform = "translateX(" + swDx + "px)";
@@ -2134,34 +2138,27 @@ function endSwipe(){
   if(!swEl) return;
   const el = swEl, wrap = swWrap, dx = swDx;
   swEl = null;
-  el.style.transition = "transform .18s ease";
-  el.style.transform = "translateX(0)";
-  setTimeout(() => { wrap.classList.remove("dir-r", "dir-l"); }, 200);
   if(swHoriz && Math.abs(dx) > 5) swSuppress = true;
   let act = null;
   if(swHoriz && dx > 70) act = el.dataset.act;
   else if(swHoriz && dx < -70) act = el.dataset.actLeft;
+  const isNextCard = (el.dataset.act || "").startsWith("next:");
+  const triggered = act && (act === el.dataset.act) && dx > 70;
+  if(isNextCard && triggered){
+    // vola via a destra per tutta la larghezza, poi collassa
+    el.style.transition = "transform .22s ease-out";
+    el.style.transform = "translateX(" + (wrap.offsetWidth + 40) + "px)";
+  }else{
+    // torna in posizione
+    el.style.transition = "transform .18s ease";
+    el.style.transform = "translateX(0)";
+    setTimeout(() => { wrap.classList.remove("dir-r", "dir-l"); }, 200);
+  }
   if(act && requireOnline()){
     const p = act.split(":");
     if(p[0] === "next"){
-      const it = items.find(i => i.tmdb_id === parseInt(p[1]) && i.media_type === "tv");
-      // prevedi se, dopo aver segnato il prossimo, la serie lascera' "Guarda il prossimo"
-      let willLeave = false;
-      if(it){
-        const before = progressOf(it);
-        // simula: un episodio in piu' visto
-        const willWatch = before.total - before.watched <= 1;   // era l'ultimo -> completata
-        // se dopo resta ancora un "next" uscito, la card resta; altrimenti esce
-        willLeave = willWatch;
-        // se la serie e' in corso e il prossimo-prossimo non e' ancora uscito, esce dal gruppo "da vedere"
-        const p2 = before.next;
-        if(!willLeave && p2){
-          // c'e' un episodio dopo il prossimo?
-          const after = before.total - before.watched - 1;
-          if(after <= 0) willLeave = true;
-        }
-      }
-      if(it && wrap && willLeave){
+      // la card e' gia' volata via in endSwipe; collassa lo spazio poi ricarica
+      if(wrap){
         wrap.style.maxHeight = wrap.offsetHeight + "px";
         requestAnimationFrame(() => wrap.classList.add("leaving"));
       }
