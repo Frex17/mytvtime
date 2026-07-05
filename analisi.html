@@ -269,15 +269,29 @@ async function run(){
       const batch = movies.slice(i, i + 4);
       await Promise.allSettled(batch.map(async m => {
         try{
-          const d = await tmdb("/movie/" + m.tmdb_id, {});
+          const d = await tmdb("/movie/" + m.tmdb_id, { append_to_response: "translations" });
           const ANIME_ORIGINS = ["JP","CN","KR","TW"], ANIME_LANGS = ["ja","zh","ko"];
           const isAnimation = (d.genres || []).some(g => g.id === 16);
           const eastern = (d.origin_country || []).some(c => ANIME_ORIGINS.includes(c)) ||
                           ANIME_LANGS.includes(d.original_language || "");
           const isAnime = isAnimation && eastern;
-          if(isAnime !== !!m.is_anime){
+          const patch = {};
+          if(isAnime !== !!m.is_anime) patch.is_anime = isAnime;
+          // titolo: se in kanji, cerca traduzione it/en
+          const CJK = /[\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF]/;
+          const raw = d.title || d.original_title || "";
+          if(CJK.test(raw)){
+            const trs = (d.translations && d.translations.translations) || [];
+            for(const lang of ["it","en"]){
+              const t = trs.find(x => x.iso_639_1 === lang && x.data && x.data.title);
+              if(t && t.data.title && !CJK.test(t.data.title)){ patch.title = t.data.title; break; }
+            }
+          }else if(raw && raw !== m.title){
+            patch.title = raw;
+          }
+          if(Object.keys(patch).length){
             await sb("showtime_items?tmdb_id=eq." + m.tmdb_id + "&media_type=eq.movie", {
-              method: "PATCH", body: { is_anime: isAnime }
+              method: "PATCH", body: patch
             });
             movChanged++;
           }
