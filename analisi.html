@@ -261,6 +261,33 @@ async function run(){
     await sleep(110);
   }
 
+  setStatus("Controllo i film (anime o no)...");
+  try{
+    const movies = await sbAll("showtime_items?select=tmdb_id,title,is_anime&media_type=eq.movie");
+    let movChanged = 0;
+    for(let i = 0; i < movies.length; i += 4){
+      const batch = movies.slice(i, i + 4);
+      await Promise.allSettled(batch.map(async m => {
+        try{
+          const d = await tmdb("/movie/" + m.tmdb_id, {});
+          const ANIME_ORIGINS = ["JP","CN","KR","TW"], ANIME_LANGS = ["ja","zh","ko"];
+          const isAnimation = (d.genres || []).some(g => g.id === 16);
+          const eastern = (d.origin_country || []).some(c => ANIME_ORIGINS.includes(c)) ||
+                          ANIME_LANGS.includes(d.original_language || "");
+          const isAnime = isAnimation && eastern;
+          if(isAnime !== !!m.is_anime){
+            await sb("showtime_items?tmdb_id=eq." + m.tmdb_id + "&media_type=eq.movie", {
+              method: "PATCH", body: { is_anime: isAnime }
+            });
+            movChanged++;
+          }
+        }catch(e){}
+      }));
+      await sleep(100);
+    }
+    if(movChanged) setStatus(movChanged + " film riclassificati come anime/non-anime...");
+  }catch(e){ console.error(e); }
+
   setStatus("Analisi delle categorie...");
   const upDated = [], upTba = [], next = [], doneList = [], anomalies = [], doubts = [];
   for(const it of items){
