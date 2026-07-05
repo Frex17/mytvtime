@@ -515,6 +515,7 @@ body.offline #offlineBar{display:block}
       <button class="active" data-t="next">Da vedere</button>
       <button data-t="up">In arrivo</button>
       <button data-t="done">Completati</button>
+      <button data-t="movies">Film</button>
     </div>
     <div id="animeList"></div>
   </section>
@@ -913,7 +914,31 @@ function categorize(it){
 }
 
 function renderSerie(){ renderTvList("#serieList", false, serieTab); }
-function renderAnime(){ renderTvList("#animeList", true, animeTab); }
+function renderAnime(){
+  if(animeTab === "movies"){ renderAnimeMovies(); return; }
+  renderTvList("#animeList", true, animeTab);
+}
+function renderAnimeMovies(){
+  const list = $("#animeList");
+  const movies = items.filter(i => i.media_type === "movie" && i.is_anime);
+  if(movies.length === 0){
+    list.innerHTML = '<div class="empty"><div class="big">&#9961;&#65039;</div>Nessun film anime in libreria.<br>Aggiungline uno dalla ricerca!' +
+      '<br><button onclick="goView(\u0027cerca\u0027)">Cerca</button></div>';
+    return;
+  }
+  const towatch = movies.filter(m => statusOf(m) !== "completed").sort((a, b) => a.title.localeCompare(b.title));
+  const seen = movies.filter(m => statusOf(m) === "completed").sort((a, b) => a.title.localeCompare(b.title));
+  let html = "";
+  if(towatch.length){
+    html += '<h2 class="section">Da vedere <span class="sec-cnt">(' + towatch.length + ')</span></h2>';
+    for(const it of towatch) html += movieCard(it, false);
+  }
+  if(seen.length){
+    html += '<h2 class="section">Visti <span class="sec-cnt">(' + seen.length + ')</span></h2>';
+    for(const it of seen) html += movieCard(it, true);
+  }
+  list.innerHTML = html;
+}
 
 function renderTvList(target, animeMode, tab){
   const list = $(target);
@@ -1092,7 +1117,7 @@ function cardDone(it, c){
 /* ================= RENDER: FILM ================= */
 function renderFilm(){
   const list = $("#filmList");
-  const movies = items.filter(i => i.media_type === "movie");
+  const movies = items.filter(i => i.media_type === "movie" && !i.is_anime);
   if(movies.length === 0){
     list.innerHTML = '<div class="empty"><div class="big">&#127916;</div>Nessun film in libreria.<br>Aggiungine uno dalla ricerca!' +
       '<br><button onclick="goView(\u0027cerca\u0027)">Cerca un film</button></div>';
@@ -1258,13 +1283,13 @@ async function addItem(id, type, btn){
       record = {
         tmdb_id: d.id,
         media_type: "movie",
-        title: d.title || d.original_title,
+        title: bestTitle(d),
         poster_path: d.poster_path,
         backdrop_path: d.backdrop_path,
         first_air_date: d.release_date || null,
         runtime: d.runtime || null,
         seasons_json: null,
-        is_anime: false,
+        is_anime: detectAnime(d),
         status: "planned"
       };
     }
@@ -2425,7 +2450,7 @@ $("#mInfo").addEventListener("click", () => {
   let cacheKb = 0;
   try{ cacheKb = Math.round((localStorage.getItem("showtime_cache") || "").length / 1024); }catch(e){}
   $("#infoBody").innerHTML =
-    "<b style=\"color:var(--cream)\">ShowTime v21</b><br>" +
+    "<b style=\"color:var(--cream)\">ShowTime v22</b><br>" +
     "Dati di TMDB &middot; salvataggio su Supabase<br>" +
     "Serie: " + nSerie + " &middot; Anime: " + nAnime + " &middot; Film: " + nFilm + "<br>" +
     "Episodi segnati: " + episodes.length.toLocaleString("it-IT") + "<br>" +
