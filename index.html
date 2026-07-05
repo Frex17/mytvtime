@@ -515,7 +515,6 @@ body.offline #offlineBar{display:block}
       <button class="active" data-t="next">Da vedere</button>
       <button data-t="up">In arrivo</button>
       <button data-t="done">Completati</button>
-      <button data-t="movies">Film</button>
     </div>
     <div id="animeList"></div>
   </section>
@@ -914,38 +913,15 @@ function categorize(it){
 }
 
 function renderSerie(){ renderTvList("#serieList", false, serieTab); }
-function renderAnime(){
-  if(animeTab === "movies"){ renderAnimeMovies(); return; }
-  renderTvList("#animeList", true, animeTab);
-}
-function renderAnimeMovies(){
-  const list = $("#animeList");
-  const movies = items.filter(i => i.media_type === "movie" && i.is_anime);
-  if(movies.length === 0){
-    list.innerHTML = '<div class="empty"><div class="big">&#9961;&#65039;</div>Nessun film anime in libreria.<br>Aggiungline uno dalla ricerca!' +
-      '<br><button onclick="goView(\u0027cerca\u0027)">Cerca</button></div>';
-    return;
-  }
-  const towatch = movies.filter(m => statusOf(m) !== "completed").sort((a, b) => a.title.localeCompare(b.title));
-  const seen = movies.filter(m => statusOf(m) === "completed").sort((a, b) => a.title.localeCompare(b.title));
-  let html = "";
-  if(towatch.length){
-    html += '<h2 class="section">Da vedere <span class="sec-cnt">(' + towatch.length + ')</span></h2>';
-    for(const it of towatch) html += movieCard(it, false);
-  }
-  if(seen.length){
-    html += '<h2 class="section">Visti <span class="sec-cnt">(' + seen.length + ')</span></h2>';
-    for(const it of seen) html += movieCard(it, true);
-  }
-  list.innerHTML = html;
-}
+function renderAnime(){ renderTvList("#animeList", true, animeTab); }
 
 function renderTvList(target, animeMode, tab){
   const list = $(target);
   const shows = items.filter(i => i.media_type === "tv" && !!i.is_anime === animeMode);
   const word = animeMode ? "anime" : "serie";
   const icon = animeMode ? "&#9961;&#65039;" : "&#128250;";
-  if(shows.length === 0){
+  const hasAnimeMovies = animeMode && items.some(i => i.media_type === "movie" && i.is_anime);
+  if(shows.length === 0 && !hasAnimeMovies){
     list.innerHTML = '<div class="empty"><div class="big">' + icon + '</div>Nessun ' + word +
       ' in libreria.<br>Vai su Cerca e aggiungi!' +
       '<br><button onclick="goView(\u0027cerca\u0027)">Cerca</button></div>';
@@ -971,7 +947,10 @@ function renderTvList(target, animeMode, tab){
   } else {
     bucket.sort((a, b) => a.it.title.localeCompare(b.it.title));
   }
-  if(bucket.length === 0 && cartoons.length === 0){
+  const animeMoviesHere = animeMode && (tab === "next" || tab === "done") &&
+    items.some(i => i.media_type === "movie" && i.is_anime &&
+      (statusOf(i) === "completed") === (tab === "done"));
+  if(bucket.length === 0 && cartoons.length === 0 && !animeMoviesHere){
     const msgs = {
       next: "Niente da vedere qui: sei in pari con tutto! &#127881;",
       up: "Nessun episodio in arrivo al momento.",
@@ -1043,6 +1022,17 @@ function renderTvList(target, animeMode, tab){
       if(tab === "next") html += cardNext(x.it, x.c.p);
       else if(tab === "up") html += cardUpcoming(x.it, x.c);
       else html += cardDone(x.it, x.c);
+    }
+  }
+  // film anime in fondo alla pagina Anime: "Da vedere" -> tab next, "Visti" -> tab done
+  if(animeMode && (tab === "next" || tab === "done")){
+    const wantSeen = (tab === "done");
+    const aMovies = items
+      .filter(i => i.media_type === "movie" && i.is_anime && (statusOf(i) === "completed") === wantSeen)
+      .sort((a, b) => a.title.localeCompare(b.title));
+    if(aMovies.length){
+      html += '<span class="group-pill">Film</span>';
+      for(const m of aMovies) html += movieCard(m, wantSeen);
     }
   }
   list.innerHTML = html;
