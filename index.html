@@ -637,6 +637,9 @@ const IMG_BIG = "https://image.tmdb.org/t/p/w780";
 let items = [];          // showtime_items rows
 let episodes = [];       // showtime_episodes rows
 let currentDetail = null;      // item currently open in overlay
+let serieTab = "next";         // scheda attiva pagina Serie
+let animeTab = "next";         // scheda attiva pagina Anime
+let filmTab = "towatch";       // scheda attiva pagina Film
 const seasonCache = {};        // "tmdbId-season" -> episodes array from TMDB
 
 function tmdbKey(){ return localStorage.getItem("tmdb_key") || ""; }
