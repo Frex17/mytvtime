@@ -867,24 +867,42 @@ function statusOf(item){
 
 /* ================= RENDER: SERIE / ANIME ================= */
 const ONGOING = ["Returning Series", "In Production", "Planned", "Pilot"];
+function labelPos(l){
+  const m = /^S(\d+) E(\d+)$/.exec(l || "");
+  return m ? [parseInt(m[1]), parseInt(m[2])] : null;
+}
 function categorize(it){
   const p = progressOf(it);
   if(it.status === "dropped") return { sec: "done", p: p, dropped: true };
+  const t = todayStr();
+  const futureDate = (it.next_air_date && it.next_air_date > t) ? it.next_air_date : null;
+
   if(!p.next){
+    // tutto visto: decide l'utente se ha scelto, altrimenti lo stato TMDB
+    if(it.cat_override === "done") return { sec: "done", p: p };
+    if(it.cat_override === "up") return { sec: "up", p: p, date: futureDate, label: it.next_air_label || "" };
     if(ONGOING.includes(it.show_status || "")){
-      const d = (it.next_air_date && it.next_air_date > todayStr()) ? it.next_air_date : null;
-      return { sec: "up", p: p, date: d, label: it.next_air_label || "" };
+      // "in corso" ma ferma da 5+ anni senza nulla in programma = di fatto conclusa
+      if(!futureDate && it.last_air_date && it.last_air_date < daysAgoStr(1825)){
+        return { sec: "done", p: p };
+      }
+      return { sec: "up", p: p, date: futureDate, label: it.next_air_label || "" };
     }
     return { sec: "done", p: p };
   }
+
   const label = "S" + p.next.s + " E" + p.next.e;
-  if(it.next_air_label === label && it.next_air_date && it.next_air_date > todayStr()){
-    return { sec: "up", p: p, date: it.next_air_date, label: label };
+  // se il prossimo da vedere viene DOPO l'ultima puntata uscita, sei in pari: In arrivo
+  const la = labelPos(it.last_air_label);
+  if(la && (p.next.s > la[0] || (p.next.s === la[0] && p.next.e > la[1]))){
+    const d = (it.next_air_label === label && futureDate) ? futureDate : futureDate;
+    return { sec: "up", p: p, date: d, label: label };
+  }
+  if(it.next_air_label === label && futureDate){
+    return { sec: "up", p: p, date: futureDate, label: label };
   }
   return { sec: "next", p: p };
 }
-
-let serieTab = "next", animeTab = "next", filmTab = "towatch";
 
 function renderSerie(){ renderTvList("#serieList", false, serieTab); }
 function renderAnime(){ renderTvList("#animeList", true, animeTab); }
@@ -1723,6 +1741,14 @@ function renderDetailHead(){
       : '<button class="action gold" onclick="markMovie(' + it.tmdb_id + ',true)">&#10003; Segna visto</button>';
   }else{
     actions += '<button class="action gold" onclick="markAllSeries()">Tutta vista</button>';
+    const cNow = categorize(it);
+    if(!cNow.p.next && it.status !== "dropped"){
+      if(cNow.sec === "up"){
+        actions += '<button class="action" onclick="setOverride(\u0027done\u0027)">Per me &egrave; conclusa</button>';
+      }else if(cNow.sec === "done"){
+        actions += '<button class="action" onclick="setOverride(\u0027up\u0027)">In attesa di nuova stagione</button>';
+      }
+    }
     if(it.anime_doubt){
       actions += it.is_anime
         ? '<button class="action" onclick="toggleAnime()">&#128250; \u00C8 una serie</button>'
@@ -1807,6 +1833,21 @@ async function markAllSeries(){
     renderAll();
     refreshDetailChecks();
     toast("Segnati " + rows.length + " episodi come visti");
+  }catch(e){ console.error(e); toast("Errore di salvataggio"); }
+}
+
+async function setOverride(v){
+  if(!requireOnline()) return;
+  const it = currentDetail;
+  if(!it) return;
+  it.cat_override = v;
+  try{
+    await sb("showtime_items?tmdb_id=eq." + it.tmdb_id + "&media_type=eq.tv", {
+      method: "PATCH", body: { cat_override: v }
+    });
+    renderDetailHead();
+    renderAll();
+    toast(v === "up" ? "Spostata in In arrivo" : "Spostata in Completate");
   }catch(e){ console.error(e); toast("Errore di salvataggio"); }
 }
 
@@ -2317,7 +2358,7 @@ $("#mInfo").addEventListener("click", () => {
   let cacheKb = 0;
   try{ cacheKb = Math.round((localStorage.getItem("showtime_cache") || "").length / 1024); }catch(e){}
   $("#infoBody").innerHTML =
-    "<b style=\"color:var(--cream)\">ShowTime v19</b><br>" +
+    "<b style=\"color:var(--cream)\">ShowTime v20</b><br>" +
     "Dati di TMDB &middot; salvataggio su Supabase<br>" +
     "Serie: " + nSerie + " &middot; Anime: " + nAnime + " &middot; Film: " + nFilm + "<br>" +
     "Episodi segnati: " + episodes.length.toLocaleString("it-IT") + "<br>" +
