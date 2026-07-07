@@ -1,4 +1,4 @@
-const CACHE = "showtime-v1";
+const CACHE = "showtime-v2";
 const SHELL = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", (e) => {
@@ -19,14 +19,17 @@ self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   // Never cache API calls (Supabase / TMDB): always network
   if (url.origin !== self.location.origin) return;
-  // App shell: network first, cache fallback (so updates arrive immediately)
+  // App shell: cache-first per apertura ISTANTANEA, aggiornamento in background (stale-while-revalidate)
   e.respondWith(
-    fetch(e.request)
-      .then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(e.request, copy));
-        return res;
-      })
-      .catch(() => caches.match(e.request))
+    caches.match(e.request).then((cached) => {
+      const fetchPromise = fetch(e.request)
+        .then((res) => {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(e.request, copy));
+          return res;
+        })
+        .catch(() => cached);
+      return cached || fetchPromise;
+    })
   );
 });
