@@ -49,6 +49,17 @@ input[type=text]{
 .tag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.5px;padding:3px 8px;border-radius:99px;margin-left:6px}
 .tag.group{background:rgba(184,150,62,.2);color:var(--gold-light)}
 .tag.dates{background:rgba(176,90,74,.2);color:var(--danger)}
+.preview-season .ctrl{display:flex;gap:6px;margin-top:8px}
+.mini{
+  background:var(--surface);border:1.5px solid var(--gold);color:var(--gold);
+  border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;
+  font-family:'DM Sans',sans-serif;
+}
+.mini.red{border-color:var(--danger);color:var(--danger)}
+.mini:active{opacity:.7}
+.preview-season.excluded{opacity:.4}
+.preview-season.excluded .h{text-decoration:line-through}
+.watched-note{font-size:11px;color:var(--gold-light);margin-top:3px}
 a.back{color:var(--muted);font-size:13px;text-decoration:none;display:inline-block;margin-bottom:16px}
 </style>
 </head>
@@ -58,8 +69,15 @@ a.back{color:var(--muted);font-size:13px;text-decoration:none;display:inline-blo
   <h1><span class="gold">Show</span>Time</h1>
   <div class="sub">Dividi in stagioni gli anime che TMDB tiene in un blocco unico.<br>Una serie alla volta, con anteprima e conferma. Le puntate viste vengono rimappate senza perdite.</div>
 
+  <div class="card" id="scanCard">
+    <h2>Scansione automatica</h2>
+    <p>Trova tutte le serie con il problema di Re:Zero: una stagione unica con troppi episodi. Poi le sistemi una alla volta.</p>
+    <button class="btn" id="btnScan">Scansiona la libreria</button>
+    <div id="scanList" style="margin-top:12px"></div>
+  </div>
+
   <div class="card" id="searchCard">
-    <h2>1. Cerca la serie da sistemare</h2>
+    <h2>Oppure cerca a mano</h2>
     <p>Scrivi il nome (deve essere gi&agrave; nella tua libreria).</p>
     <input type="text" id="q" placeholder="Es. Re:Zero" autocomplete="off">
     <div id="candidates" style="margin-top:12px"></div>
@@ -70,6 +88,7 @@ a.back{color:var(--muted);font-size:13px;text-decoration:none;display:inline-blo
     <div id="previewBody"></div>
     <div id="status"></div>
     <button class="btn" id="btnApply" style="display:none">Applica questa divisione</button>
+    <button class="btn" id="btnNext" style="display:none;margin-top:8px">Prossima serie della scansione &rarr;</button>
     <button class="btn ghost" id="btnCancel" style="margin-top:8px">Annulla</button>
   </div>
 </div>
@@ -149,6 +168,62 @@ async function loadLibrary(){
   library = await sbAll("showtime_items?select=tmdb_id,title,poster_path,seasons_json,is_anime&media_type=eq.tv&order=title.asc");
 }
 
+/* ============ SCANSIONE AUTOMATICA ============ */
+// Criterio "problema Re:Zero": stagione unica con 27+ episodi.
+// (una stagione singola normale arriva a ~26; oltre, quasi certamente TMDB non ha diviso)
+let scanQueue = [];      // [{tmdb_id, done, nSeasons}]
+$("#btnScan").addEventListener("click", doScan);
+
+async function doScan(){
+  $("#btnScan").disabled = true;
+  $("#scanList").innerHTML = '<p style="color:var(--muted)">Scansione in corso...</p>';
+  try{
+    library = [];
+    await loadLibrary();
+    const cands = library
+      .filter(x => (x.seasons_json || []).length === 1 && x.seasons_json[0].c >= 27)
+      .sort((a, b) => b.seasons_json[0].c - a.seasons_json[0].c);
+    scanQueue = cands.map(x => ({ tmdb_id: x.tmdb_id, done: false, nSeasons: 0 }));
+    renderScanList();
+  }catch(e){
+    $("#scanList").innerHTML = '<p style="color:var(--danger)">' + esc(e.message) + '</p>';
+  }
+  $("#btnScan").disabled = false;
+}
+
+function renderScanList(){
+  const box = $("#scanList");
+  if(!scanQueue.length){
+    box.innerHTML = '<p style="color:var(--muted)">Nessuna serie sospetta: tutte hanno gi&agrave; stagioni divise. &#127881;</p>';
+    return;
+  }
+  const remaining = scanQueue.filter(q => !q.done).length;
+  let html = '<p style="margin-bottom:10px"><b>' + scanQueue.length + '</b> serie sospette' +
+    (remaining < scanQueue.length ? ' &middot; ' + remaining + ' da sistemare' : '') + '</p>';
+  for(const q of scanQueue){
+    const it = library.find(x => x.tmdb_id === q.tmdb_id);
+    if(!it) continue;
+    const img = it.poster_path ? '<img src="' + IMG + it.poster_path + '" alt="">' : '<div style="width:42px;height:63px;border-radius:6px;background:var(--surface-2)"></div>';
+    const meta = q.done
+      ? '<span style="color:var(--ok)">&#10003; divisa in ' + q.nSeasons + ' stagioni</span>'
+      : '1 stagione &middot; ' + (it.seasons_json && it.seasons_json[0] ? it.seasons_json[0].c : "?") + ' episodi';
+    html += '<div class="candidate" ' + (q.done ? 'style="opacity:.5"' : 'onclick="pickShow(' + q.tmdb_id + ')"') + '>' + img +
+      '<div class="info"><div class="nm">' + esc(it.title) + '</div>' +
+      '<div class="meta">' + meta + '</div></div></div>';
+  }
+  box.innerHTML = html;
+}
+
+function nextInQueue(){
+  const next = scanQueue.find(q => !q.done);
+  if(next) pickShow(next.tmdb_id);
+  else{
+    $("#previewCard").style.display = "none";
+    renderScanList();
+  }
+}
+$("#btnNext").addEventListener("click", nextInQueue);
+
 let searchTimer = null;
 $("#q").addEventListener("input", () => {
   clearTimeout(searchTimer);
@@ -177,13 +252,17 @@ async function pickShow(tmdbId){
   const it = library.find(x => x.tmdb_id === tmdbId);
   if(!it) return;
   $("#previewCard").style.display = "block";
-  $("#previewTitle").textContent = "2. Anteprima: " + it.title;
+  $("#btnNext").style.display = "none";
+  $("#previewTitle").textContent = "Anteprima: " + it.title;
   $("#previewBody").innerHTML = "";
   $("#btnApply").style.display = "none";
   setStatus("Analizzo la struttura su TMDB...");
   $("#previewCard").scrollIntoView({ behavior: "smooth" });
 
   try{
+    // scarica le spunte esistenti (per mostrare quante ne hai viste in ogni blocco)
+    const watchedRows = await sbAll("showtime_episodes?select=season,episode&tmdb_id=eq." + tmdbId);
+    const watchedSet = new Set(watchedRows.map(w => w.season + "-" + w.episode));
     // scarica la struttura attuale delle stagioni da TMDB
     const show = await tmdb("/tv/" + tmdbId, {});
     const tmdbSeasons = (show.seasons || []).filter(s => s.season_number > 0 && s.episode_count > 0);
@@ -216,7 +295,12 @@ async function pickShow(tmdbId){
       return;
     }
 
-    currentPlan = { tmdbId: tmdbId, title: it.title, plan: plan, absEps: absEps, method: method };
+    plan.forEach(b => b.excluded = false);
+    currentPlan = {
+      tmdbId: tmdbId, title: it.title, plan: plan, absEps: absEps, method: method,
+      watchedSet: watchedSet,
+      originalPlan: JSON.parse(JSON.stringify(plan))
+    };
     renderPreview();
   }catch(e){
     console.error(e);
@@ -278,23 +362,68 @@ function planFromDates(absEps){
 
 /* ============ ANTEPRIMA ============ */
 function renderPreview(){
-  const { plan, method, absEps } = currentPlan;
+  const { plan, method, watchedSet } = currentPlan;
+  const active = plan.filter(b => !b.excluded);
   const tag = method === "group"
     ? '<span class="tag group">divisione ufficiale TMDB</span>'
     : '<span class="tag dates">stimata dalle date</span>';
-  let html = '<p style="margin-bottom:12px">La serie verr&agrave; divisa in <b>' + plan.length + ' stagioni</b> ' + tag + '</p>';
+  let html = '<p style="margin-bottom:12px">La serie verr&agrave; divisa in <b>' + active.length + ' stagioni</b> ' + tag + '</p>';
+  let num = 0;
   plan.forEach((s, i) => {
     const first = s.eps[0], last = s.eps[s.eps.length - 1];
-    html += '<div class="preview-season">' +
-      '<div class="h">Stagione ' + (i + 1) + ' &middot; ' + s.eps.length + ' episodi</div>' +
-      '<div class="d">' + esc(s.name) + '<br>dal ' + dt(first.air_date) + ' al ' + dt(last.air_date) + '</div></div>';
+    const seen = s.eps.filter(e => watchedSet.has(e.season + "-" + e.episode)).length;
+    const title = s.excluded ? "Esclusa" : "Stagione " + (++num);
+    let ctrl = '<div class="ctrl">';
+    if(s.excluded){
+      ctrl += '<button class="mini" onclick="toggleExclude(' + i + ')">Reincludi</button>';
+    }else{
+      ctrl += '<button class="mini red" onclick="toggleExclude(' + i + ')">Escludi</button>';
+      if(i > 0 && !plan[i-1].excluded){
+        ctrl += '<button class="mini" onclick="mergePrev(' + i + ')">&#8613; Unisci alla precedente</button>';
+      }
+    }
+    ctrl += '</div>';
+    html += '<div class="preview-season' + (s.excluded ? " excluded" : "") + '">' +
+      '<div class="h">' + title + ' &middot; ' + s.eps.length + ' episodi</div>' +
+      '<div class="d">' + esc(s.name) + '<br>dal ' + dt(first.air_date) + ' al ' + dt(last.air_date) + '</div>' +
+      (seen ? '<div class="watched-note">&#10003; ne hai viste ' + seen + '</div>' : '') +
+      ctrl + '</div>';
   });
+  html += '<button class="mini" style="margin-top:4px" onclick="restorePlan()">&#8634; Ripristina proposta originale</button>';
   if(method === "dates"){
-    html += '<p style="color:var(--danger);font-size:12px;margin-top:6px">&#9888;&#65039; Divisione stimata dalle date: le due parti di una stessa stagione (cour) con mesi di pausa potrebbero risultare separate. Controlla che abbia senso prima di applicare.</p>';
+    html += '<p style="color:var(--danger);font-size:12px;margin-top:10px">&#9888;&#65039; Divisione stimata dalle date: se due blocchi sono in realt&agrave; le parti della stessa stagione, usa "Unisci alla precedente".</p>';
   }
+  const excludedSeen = plan.filter(b => b.excluded)
+    .reduce((a, b) => a + b.eps.filter(e => watchedSet.has(e.season + "-" + e.episode)).length, 0);
   $("#previewBody").innerHTML = html;
-  setStatus("Le tue puntate viste verranno rimappate automaticamente alle nuove stagioni.");
-  $("#btnApply").style.display = "block";
+  if(excludedSeen > 0){
+    setStatus("⚠️ Attenzione: nei blocchi esclusi ci sono " + excludedSeen + " puntate che hai già visto. Escludendoli, quelle spunte verranno scartate.");
+  }else{
+    setStatus("Le tue puntate viste verranno rimappate automaticamente alle nuove stagioni.");
+  }
+  $("#btnApply").style.display = active.length >= 1 ? "block" : "none";
+}
+
+function toggleExclude(i){
+  currentPlan.plan[i].excluded = !currentPlan.plan[i].excluded;
+  renderPreview();
+}
+function mergePrev(i){
+  const plan = currentPlan.plan;
+  if(i <= 0 || plan[i].excluded || plan[i-1].excluded) return;
+  const merged = plan[i-1].eps.concat(plan[i].eps);
+  merged.sort((a, b) => {
+    if(a.air_date && b.air_date) return a.air_date < b.air_date ? -1 : 1;
+    return 0;
+  });
+  plan[i-1].eps = merged;
+  plan[i-1].name = plan[i-1].name + " + " + plan[i].name;
+  plan.splice(i, 1);
+  renderPreview();
+}
+function restorePlan(){
+  currentPlan.plan = JSON.parse(JSON.stringify(currentPlan.originalPlan));
+  renderPreview();
 }
 
 /* ============ APPLICAZIONE ============ */
@@ -305,10 +434,12 @@ $("#btnCancel").addEventListener("click", () => {
 
 $("#btnApply").addEventListener("click", async () => {
   if(!currentPlan) return;
-  if(!confirm("Applicare la divisione in " + currentPlan.plan.length + " stagioni per " + currentPlan.title + "?\n\nLe puntate viste verranno rimappate. L'operazione riscrive i dati di questa serie.")) return;
+  const nActive = currentPlan.plan.filter(b => !b.excluded).length;
+  if(!confirm("Applicare la divisione in " + nActive + " stagioni per " + currentPlan.title + "?\n\nLe puntate viste verranno rimappate. L'operazione riscrive i dati di questa serie.")) return;
   $("#btnApply").disabled = true;
   $("#btnCancel").disabled = true;
-  const { tmdbId, plan, absEps } = currentPlan;
+  const { tmdbId } = currentPlan;
+  const plan = currentPlan.plan.filter(b => !b.excluded);
 
   try{
     // 1) costruisci la mappa: vecchia (season-episode) -> nuova (season-episode)
@@ -369,12 +500,26 @@ $("#btnApply").addEventListener("click", async () => {
     }
 
     setStatus("\u2705 Fatto! " + currentPlan.title + " ora ha " + plan.length + " stagioni.\n" +
-      newRows.length + " puntate viste rimappate" + (lost ? " (" + lost + " non rimappate: erano fuori dalla nuova struttura)" : "") +
+      newRows.length + " puntate viste rimappate" + (lost ? " (" + lost + " scartate: appartenevano a blocchi esclusi o fuori struttura)" : "") +
       ".\n\nRicarica ShowTime per vedere il risultato.");
     $("#btnApply").style.display = "none";
-    $("#btnCancel").textContent = "Sistema un'altra serie";
     $("#btnCancel").disabled = false;
-    library = [];   // forza ricarica libreria
+    // aggiorna la coda della scansione
+    const q = scanQueue.find(x => x.tmdb_id === tmdbId);
+    if(q){
+      q.done = true;
+      q.nSeasons = plan.length;
+      renderScanList();
+      const remaining = scanQueue.filter(x => !x.done).length;
+      if(remaining > 0){
+        $("#btnNext").textContent = "Prossima serie della scansione (" + remaining + ") \u2192";
+        $("#btnNext").style.display = "block";
+      }else{
+        $("#btnNext").style.display = "none";
+        setStatus($("#status").textContent + "\n\n\ud83c\udfc1 Coda finita: tutte le serie sospette sono state sistemate!");
+      }
+    }
+    library = [];   // forza ricarica libreria (rimarra' valida per la coda: gia' renderizzata)
   }catch(e){
     console.error(e);
     setStatus("\u274c Errore durante l'applicazione: " + e.message + "\nNessun dato dovrebbe essere andato perso, ma controlla la serie in ShowTime.");
