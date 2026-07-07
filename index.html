@@ -211,7 +211,9 @@ h2.section:first-child{margin-top:2px}
   position:absolute;inset:0;z-index:0;display:none;align-items:center;
   font-weight:800;font-size:15px;gap:8px;
 }
-.swipe-bg{padding-left:20px;background:var(--gold);color:#181307;justify-content:flex-start}
+.swipe-bg{padding-left:20px;padding-right:16px;background:var(--gold);color:#181307;justify-content:flex-start;
+  white-space:nowrap;overflow:hidden}
+.swipe-bg .rem{overflow:hidden;text-overflow:ellipsis;min-width:0}
 .swipe-bg-l{padding-right:20px;background:var(--danger);color:var(--cream);justify-content:flex-end}
 .swipe-wrap.dir-r .swipe-bg{display:flex}
 .swipe-wrap.dir-l .swipe-bg-l{display:flex}
@@ -975,13 +977,12 @@ function categorize(it){
   }
 
   const label = "S" + p.next.s + " E" + p.next.e;
-  // sei "in pari" se il prossimo da vedere non e' ancora uscito.
-  // due segnali indipendenti, basta uno:
-  //  a) il prossimo da vedere viene DOPO l'ultima puntata andata in onda
-  //  b) l'etichetta della prossima uscita coincide col prossimo da vedere ed e' futura
+  // per le serie divise a mano, il confronto con TMDB avviene in numerazione TMDB
+  const nx = mapPair(it, p.next.s, p.next.e);
+  const mLabel = "S" + nx.s + " E" + nx.e;
   const la = labelPos(it.last_air_label);
-  const afterLastAired = la && (p.next.s > la[0] || (p.next.s === la[0] && p.next.e > la[1]));
-  const nextIsScheduled = it.next_air_label === label && futureDate;
+  const afterLastAired = la && (nx.s > la[0] || (nx.s === la[0] && nx.e > la[1]));
+  const nextIsScheduled = it.next_air_label === mLabel && futureDate;
   if(afterLastAired || nextIsScheduled){
     return { sec: "up", p: p, date: futureDate, label: label };
   }
@@ -1121,25 +1122,53 @@ function posterOf(it, fallback){
 }
 
 function pad2(n){ return n < 10 ? "0" + n : "" + n; }
-function epNameCached(tmdbId, season, ep){
-  const eps = seasonCache[tmdbId + "-" + season];
-  if(!eps) return null;
-  const m = eps.find(x => x.episode_number === ep);
-  return m ? (m.name || "") : "";
+// ---- mappa stagioni custom (serie divise con lo strumento Stagioni) ----
+// season_map: [[ [tmdbS,tmdbE], ... ] per ogni stagione custom]. Se assente: identita'.
+function mapPair(it, s, e){
+  const m = it && it.season_map;
+  if(m && m[s - 1] && m[s - 1][e - 1]){
+    const p = m[s - 1][e - 1];
+    return { s: p[0], e: p[1] };
+  }
+  return { s: s, e: e };
 }
-// carica in background i nomi episodi di una stagione, poi aggiorna le card gia' a schermo
+function metaCached(it, s, e){
+  const p = mapPair(it, s, e);
+  const eps = seasonCache[it.tmdb_id + "-" + p.s];
+  if(!eps) return null;                                   // non ancora caricato
+  return eps.find(x => x.episode_number === p.e);         // undefined se manca su TMDB
+}
+async function ensureMetaFor(it, customSeason){
+  // quali stagioni TMDB servono per questa stagione custom?
+  const m = it.season_map;
+  const needed = new Set();
+  if(m && m[customSeason - 1]){
+    for(const pr of m[customSeason - 1]) needed.add(pr[0]);
+  }else{
+    needed.add(customSeason);
+  }
+  for(const ts of needed){
+    const key = it.tmdb_id + "-" + ts;
+    if(!seasonCache[key]) seasonCache[key] = await fetchSeasonEpisodes(it.tmdb_id, ts);
+  }
+}
+function epNameCached(it, season, ep){
+  const meta = metaCached(it, season, ep);
+  if(meta === null) return null;
+  return meta ? (meta.name || "") : "";
+}
+// carica in background i nomi episodi, poi aggiorna le card gia' a schermo
 const seasonMetaPending = {};
-async function ensureSeasonMeta(tmdbId, season){
-  const key = tmdbId + "-" + season;
-  if(seasonCache[key] || seasonMetaPending[key]) return;
+async function ensureSeasonMeta(it, season){
+  const key = it.tmdb_id + "-" + season;
+  if(seasonMetaPending[key]) return;
   if(!navigator.onLine || !tmdbKey()) return;
   seasonMetaPending[key] = true;
   try{
-    seasonCache[key] = await fetchSeasonEpisodes(tmdbId, season);
-    // aggiorna eventuali nomi episodio gia' renderizzati per questa serie
+    await ensureMetaFor(it, season);
     document.querySelectorAll('[data-epname="' + key + '"]').forEach(el => {
       const ep = parseInt(el.dataset.epnum);
-      const nm = epNameCached(tmdbId, season, ep);
+      const nm = epNameCached(it, season, ep);
       if(nm) el.textContent = nm;
     });
   }catch(e){ /* silenzioso */ }
@@ -1157,8 +1186,8 @@ function cardNext(it, p){
   let nuovo = "";
   if(isNew) nuovo = '<div><span class="badge-new">' + (p.next.e === 1 ? "PREMIERE" : "NUOVO") + '</span></div>';
   const key = it.tmdb_id + "-" + p.next.s;
-  const cachedName = epNameCached(it.tmdb_id, p.next.s, p.next.e);
-  if(cachedName === null) ensureSeasonMeta(it.tmdb_id, p.next.s);   // carica in background
+  const cachedName = epNameCached(it, p.next.s, p.next.e);
+  if(cachedName === null) ensureSeasonMeta(it, p.next.s);   // carica in background
   const nameHtml = '<div class="card-epname" data-epname="' + key + '" data-epnum="' + p.next.e + '">' +
     esc(cachedName || "") + '</div>';
   return swipeWrap(
@@ -1188,8 +1217,8 @@ function cardUpcoming(it, c){
   let nameHtml = "";
   if(p.next){
     const key = it.tmdb_id + "-" + p.next.s;
-    const cachedName = epNameCached(it.tmdb_id, p.next.s, p.next.e);
-    if(cachedName === null) ensureSeasonMeta(it.tmdb_id, p.next.s);
+    const cachedName = epNameCached(it, p.next.s, p.next.e);
+    if(cachedName === null) ensureSeasonMeta(it, p.next.s);
     nameHtml = '<div class="card-epname" data-epname="' + key + '" data-epnum="' + p.next.e + '">' +
       esc(cachedName || "") + '</div>';
   }
@@ -1443,7 +1472,8 @@ async function markNext(tmdbId){
   if(!it) return;
   const p = progressOf(it);
   if(!p.next) return;
-  const label = "S" + p.next.s + " E" + p.next.e;
+  const nxg = mapPair(it, p.next.s, p.next.e);
+  const label = "S" + nxg.s + " E" + nxg.e;
   if(it.next_air_label === label && it.next_air_date && it.next_air_date > todayStr()){
     toast("Esce il " + it.next_air_date.split("-").reverse().join("/"));
     return;
@@ -1477,15 +1507,12 @@ function remainingAfter(it, season, ep){
   const t = todayStr();
   let count = 0;
   for(const st of (it.seasons_json || [])){
-    const eps = seasonCache[it.tmdb_id + "-" + st.n];
     for(let e = 1; e <= st.c; e++){
       if(st.n < season || (st.n === season && e <= ep)) continue;
       if(set.has(st.n + "-" + e)) continue;
       // conta solo se uscito (o se non conosciamo le date)
-      if(eps){
-        const m = eps.find(x => x.episode_number === e);
-        if(m && (!m.air_date || m.air_date > t)) continue;
-      }
+      const m = metaCached(it, st.n, e);
+      if(m && (!m.air_date || m.air_date > t)) continue;
       count++;
     }
   }
@@ -1547,24 +1574,20 @@ async function markSeason(tmdbId, season, count){
   const it = items.find(i => i.tmdb_id === tmdbId && i.media_type === "tv");
   if(!it) return;
   // recupera le date della stagione per non segnare episodi non ancora usciti
-  const key = tmdbId + "-" + season;
-  if(!seasonCache[key]){
-    try{
-      seasonCache[key] = await fetchSeasonEpisodes(tmdbId, season);
-    }catch(e){
-      console.error(e);
-      toast("Impossibile verificare le date di uscita, riprova");
-      return;
-    }
+  try{
+    await ensureMetaFor(it, season);
+  }catch(e){
+    console.error(e);
+    toast("Impossibile verificare le date di uscita, riprova");
+    return;
   }
-  const eps = seasonCache[key];
   const t = todayStr();
   const set = watchedSet(tmdbId);
   const rows = [];
   let skippedFuture = 0;
   for(let e = 1; e <= count; e++){
     if(set.has(season + "-" + e)) continue;
-    const meta = eps.find(x => x.episode_number === e);
+    const meta = metaCached(it, season, e);
     if(meta && (!meta.air_date || meta.air_date > t)){ skippedFuture++; continue; }
     rows.push({ tmdb_id: tmdbId, season: season, episode: e });
   }
@@ -1952,13 +1975,11 @@ async function markAllSeries(){
   const lastSeason = seasonsList[seasonsList.length - 1];
   if(lastSeason && ONGOING.includes(it.show_status || "")){
     try{
-      const key = it.tmdb_id + "-" + lastSeason.n;
-      if(!seasonCache[key]){
-        seasonCache[key] = await fetchSeasonEpisodes(it.tmdb_id, lastSeason.n);
-      }
+      await ensureMetaFor(it, lastSeason.n);
       const t = todayStr();
-      for(const m of seasonCache[key]){
-        if(!m.air_date || m.air_date > t) futureSet.add(lastSeason.n + "-" + m.episode_number);
+      for(let e = 1; e <= lastSeason.c; e++){
+        const m = metaCached(it, lastSeason.n, e);
+        if(m && (!m.air_date || m.air_date > t)) futureSet.add(lastSeason.n + "-" + e);
       }
     }catch(e){
       console.error(e);
@@ -2054,7 +2075,7 @@ async function refreshFromTmdb(){
     const d = await tmdb("/" + it.media_type + "/" + it.tmdb_id, { append_to_response: "translations" });
     const patch = {};
     if(it.media_type === "tv"){
-      patch.seasons_json = (d.seasons || [])
+      if(!it.season_map) patch.seasons_json = (d.seasons || [])
         .filter(s => s.season_number > 0 && s.episode_count > 0)
         .map(s => ({ n: s.season_number, c: s.episode_count }));
       patch.runtime = (d.episode_run_time && d.episode_run_time[0]) || it.runtime;
@@ -2106,10 +2127,7 @@ async function toggleSeason(season, count){
   if(body.innerHTML !== ""){ body.innerHTML = ""; return; }
   body.innerHTML = '<div class="loading-eps">Carico gli episodi...</div>';
   try{
-    const key = it.tmdb_id + "-" + season;
-    if(!seasonCache[key]){
-      seasonCache[key] = await fetchSeasonEpisodes(it.tmdb_id, season);
-    }
+    await ensureMetaFor(it, season);
     renderSeasonBody(season, count);
   }catch(e){
     console.error(e);
@@ -2124,10 +2142,11 @@ function renderSeasonBody(season, count){
   if(!body) return;
   const eps = seasonCache[it.tmdb_id + "-" + season] || [];
   const set = watchedSet(it.tmdb_id);
-  const max = Math.max(count, eps.length);
+  // per le serie divise a mano la struttura custom comanda; altrimenti TMDB puo' aver aggiunto episodi
+  const max = it.season_map ? count : Math.max(count, eps.length);
 
   function epRow(e){
-    const meta = eps.find(x => x.episode_number === e);
+    const meta = metaCached(it, season, e);
     const name = meta ? meta.name : "Episodio " + e;
     const on = set.has(season + "-" + e);
     const future = !on && meta && (!meta.air_date || meta.air_date > todayStr());
@@ -2561,7 +2580,7 @@ $("#mInfo").addEventListener("click", () => {
   let cacheKb = 0;
   try{ cacheKb = Math.round((localStorage.getItem("showtime_cache") || "").length / 1024); }catch(e){}
   $("#infoBody").innerHTML =
-    "<b style=\"color:var(--cream)\">ShowTime v24</b><br>" +
+    "<b style=\"color:var(--cream)\">ShowTime v25</b><br>" +
     "Dati di TMDB &middot; salvataggio su Supabase<br>" +
     "Serie: " + nSerie + " &middot; Anime: " + nAnime + " &middot; Film: " + nFilm + "<br>" +
     "Episodi segnati: " + episodes.length.toLocaleString("it-IT") + "<br>" +
@@ -2596,8 +2615,6 @@ let updaterRunning = false;
 async function updateOne(it){
   const d = await tmdb("/tv/" + it.tmdb_id, { append_to_response: "translations" });
   const patch = {
-    seasons_json: (d.seasons || []).filter(x => x.season_number > 0 && x.episode_count > 0)
-      .map(x => ({ n: x.season_number, c: x.episode_count })),
     show_status: d.status || null,
     next_air_date: (d.next_episode_to_air && d.next_episode_to_air.air_date) || null,
     next_air_label: d.next_episode_to_air ? ("S" + d.next_episode_to_air.season_number + " E" + d.next_episode_to_air.episode_number) : null,
@@ -2610,6 +2627,11 @@ async function updateOne(it){
   if(bt && bt !== it.title) patch.title = bt;
   patch.anime_doubt = (it.anime_doubt === false) ? false : animeDoubtFrom(d, patch.is_anime);
   patch.is_cartoon = detectCartoon(d, patch.is_anime);
+  // le stagioni divise a mano (season_map) NON vanno mai sovrascritte da TMDB
+  if(!it.season_map){
+    patch.seasons_json = (d.seasons || []).filter(x => x.season_number > 0 && x.episode_count > 0)
+      .map(x => ({ n: x.season_number, c: x.episode_count }));
+  }
   patch.network = (d.networks && d.networks[0] && d.networks[0].name) || it.network || null;
   await sb("showtime_items?tmdb_id=eq." + it.tmdb_id + "&media_type=eq.tv", { method: "PATCH", body: patch });
   Object.assign(it, patch);
