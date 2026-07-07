@@ -316,7 +316,14 @@ async function pickShow(tmdbId){
       return;
     }
     if(alreadySplit && dbTotal !== absEps.length){
-      setStatus("\u26a0\ufe0f Questa serie era stata divisa escludendo dei blocchi (" + dbTotal + " episodi vs " + absEps.length + " su TMDB): non posso rigenerare la mappa in automatico.\nSe vuoi, ricontatta l\u0027assistente per sistemarla a mano.");
+      // due possibilita': o era stata divisa escludendo blocchi, oppure (piu' spesso)
+      // NON era mai stata divisa e TMDB ha semplicemente ritoccato la scheda.
+      currentPlan = { tmdbId: tmdbId, title: it.title, realign: tmdbSeasons };
+      $("#previewBody").innerHTML =
+        '<p style="line-height:1.6">La struttura nel database (' + dbSeasons.length + ' stagioni, ' + dbTotal + ' episodi) non combacia con TMDB (' + tmdbSeasons.length + ' stagioni, ' + absEps.length + ' episodi).</p>' +
+        '<p style="color:var(--muted);font-size:13px;margin-top:8px;line-height:1.6">Se <b>non</b> avevi diviso tu questa serie, TMDB ha solo aggiornato la scheda: usa il riallineamento qui sotto. Le puntate viste restano al loro posto.</p>' +
+        '<button class="btn" style="margin-top:12px" onclick="realignToTmdb()">Riallinea alla struttura TMDB</button>';
+      setStatus("");
       return;
     }
 
@@ -465,6 +472,23 @@ function restorePlan(){
 }
 
 /* ============ APPLICAZIONE ============ */
+async function realignToTmdb(){
+  if(!currentPlan || !currentPlan.realign) return;
+  if(!confirm("Riallineare " + currentPlan.title + " alla struttura ufficiale TMDB?\n\nLe puntate viste non vengono toccate.")) return;
+  try{
+    const newSeasons = currentPlan.realign.map(x => ({ n: x.season_number, c: x.episode_count }));
+    await sb("showtime_items?tmdb_id=eq." + currentPlan.tmdbId + "&media_type=eq.tv", {
+      method: "PATCH", body: { seasons_json: newSeasons, season_map: null }
+    });
+    setStatus("\u2705 " + currentPlan.title + " riallineata alla struttura TMDB (" + newSeasons.length + " stagioni).\nRicarica ShowTime per vedere il risultato.");
+    $("#previewBody").innerHTML = "";
+    library = [];
+  }catch(e){
+    console.error(e);
+    setStatus("Errore: " + e.message);
+  }
+}
+
 $("#btnCancel").addEventListener("click", () => {
   $("#previewCard").style.display = "none";
   currentPlan = null;
