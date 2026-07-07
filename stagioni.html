@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ShowTime &middot; Dividi stagioni</title>
+<meta name="theme-color" content="#100E0B">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{
+  --bg:#100E0B;--surface:#1B1712;--surface-2:#241E16;--line:#332B1F;
+  --cream:#F2EAD9;--muted:#9A8F7B;--gold:#B8963E;--gold-light:#D8BC72;--danger:#B05A4A;--ok:#6FA86A;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--cream);min-height:100vh;padding:24px 16px 60px}
+.wrap{max-width:640px;margin:0 auto}
+h1{font-family:'Cormorant Garamond',serif;font-size:30px;font-weight:700;margin-bottom:4px}
+h1 .gold{color:var(--gold)}
+.sub{color:var(--muted);font-size:14px;margin-bottom:22px;line-height:1.5}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+.card h2{font-size:15px;font-weight:700;margin-bottom:8px}
+.card p{font-size:13px;color:var(--muted);line-height:1.55}
+.btn{
+  display:block;width:100%;text-align:center;background:var(--gold);color:#181307;
+  font-weight:700;font-size:15px;border:none;border-radius:12px;padding:14px;cursor:pointer;
+  font-family:'DM Sans',sans-serif;margin-top:10px;
+}
+.btn[disabled]{opacity:.4;cursor:default}
+.btn.ghost{background:var(--surface-2);color:var(--gold);border:1.5px solid var(--gold)}
+.btn.danger{background:var(--danger);color:#fff}
+#status{font-size:13px;color:var(--muted);margin-top:10px;font-family:monospace;white-space:pre-wrap;line-height:1.5}
+input[type=text]{
+  width:100%;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;
+  padding:12px;color:var(--cream);font-size:15px;font-family:'DM Sans',sans-serif;margin-top:4px;
+}
+.candidate{
+  display:flex;align-items:center;gap:12px;padding:10px;border:1px solid var(--line);
+  border-radius:12px;margin-bottom:8px;cursor:pointer;background:var(--surface);
+}
+.candidate:active{background:var(--surface-2)}
+.candidate img{width:42px;height:63px;border-radius:6px;object-fit:cover;background:var(--surface-2);flex-shrink:0}
+.candidate .info{flex:1;min-width:0}
+.candidate .nm{font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.candidate .meta{font-size:12px;color:var(--muted);margin-top:2px}
+.preview-season{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px;background:var(--surface-2)}
+.preview-season .h{font-weight:700;font-size:14px;color:var(--gold-light);margin-bottom:2px}
+.preview-season .d{font-size:12px;color:var(--muted)}
+.tag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.5px;padding:3px 8px;border-radius:99px;margin-left:6px}
+.tag.group{background:rgba(184,150,62,.2);color:var(--gold-light)}
+.tag.dates{background:rgba(176,90,74,.2);color:var(--danger)}
+a.back{color:var(--muted);font-size:13px;text-decoration:none;display:inline-block;margin-bottom:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="index.html">&larr; Torna a ShowTime</a>
+  <h1><span class="gold">Show</span>Time</h1>
+  <div class="sub">Dividi in stagioni gli anime che TMDB tiene in un blocco unico.<br>Una serie alla volta, con anteprima e conferma. Le puntate viste vengono rimappate senza perdite.</div>
+
+  <div class="card" id="searchCard">
+    <h2>1. Cerca la serie da sistemare</h2>
+    <p>Scrivi il nome (deve essere gi&agrave; nella tua libreria).</p>
+    <input type="text" id="q" placeholder="Es. Re:Zero" autocomplete="off">
+    <div id="candidates" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card" id="previewCard" style="display:none">
+    <h2 id="previewTitle">2. Anteprima divisione</h2>
+    <div id="previewBody"></div>
+    <div id="status"></div>
+    <button class="btn" id="btnApply" style="display:none">Applica questa divisione</button>
+    <button class="btn ghost" id="btnCancel" style="margin-top:8px">Annulla</button>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = "https://sdksosnjtzkdgolntfrp.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNka3Nvc25qdHprZGdvbG50ZnJwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEyMDU3MzQsImV4cCI6MjA5Njc4MTczNH0.BT-cI3Obd5TeBa5xN5ckrsC5xIm1MtMphXQABTiWVc8";
+const TMDB_BASE = "https://api.themoviedb.org/3";
+const IMG = "https://image.tmdb.org/t/p/w185";
+
+function $(s){ return document.querySelector(s); }
+function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+function tmdbKey(){ return localStorage.getItem("tmdb_key") || ""; }
+function esc(x){ return (x||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function dt(d){ return d ? d.split("-").reverse().join("/") : "?"; }
+function setStatus(t){ $("#status").textContent = t; }
+
+async function tmdb(path, params){
+  params = params || {};
+  if(!params.language) params.language = "it-IT";
+  const usp = new URLSearchParams(params);
+  const headers = {};
+  const key = tmdbKey();
+  if(!key) throw new Error("Manca la chiave TMDB: impostala prima in ShowTime.");
+  if(key.startsWith("eyJ")) headers["Authorization"] = "Bearer " + key;
+  else usp.set("api_key", key);
+  for(let a = 0; a < 3; a++){
+    const res = await fetch(TMDB_BASE + path + "?" + usp.toString(), { headers: headers });
+    if(res.status === 429){ await sleep(1200); continue; }
+    if(!res.ok) throw new Error("TMDB " + res.status);
+    return res.json();
+  }
+  throw new Error("TMDB rate limit");
+}
+
+const sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+async function authToken(){
+  const r = await sbClient.auth.getSession();
+  return (r.data && r.data.session && r.data.session.access_token) || null;
+}
+async function sb(path, opts){
+  opts = opts || {};
+  const token = await authToken();
+  if(!token) throw new Error("Non hai fatto l\u0027accesso: apri prima ShowTime ed entra con la tua email.");
+  const headers = Object.assign({
+    "apikey": SUPABASE_ANON_KEY,
+    "Authorization": "Bearer " + token,
+    "Content-Type": "application/json"
+  }, opts.headers || {});
+  const res = await fetch(SUPABASE_URL + "/rest/v1/" + path, {
+    method: opts.method || "GET",
+    headers: headers,
+    body: opts.body ? JSON.stringify(opts.body) : undefined
+  });
+  if(!res.ok) throw new Error("Supabase " + res.status + ": " + (await res.text()));
+  if(res.status === 204) return null;
+  const ct = res.headers.get("content-type") || "";
+  return ct.includes("json") ? res.json() : null;
+}
+async function sbAll(path){
+  const out = [];
+  const page = 1000;
+  for(let off = 0; ; off += page){
+    const rows = await sb(path, { headers: { "Range-Unit": "items", "Range": off + "-" + (off + page - 1) } });
+    if(rows && rows.length) out.push.apply(out, rows);
+    if(!rows || rows.length < page) break;
+  }
+  return out;
+}
+
+/* ============ RICERCA IN LIBRERIA ============ */
+let library = [];
+let currentPlan = null;
+
+async function loadLibrary(){
+  if(library.length) return;
+  library = await sbAll("showtime_items?select=tmdb_id,title,poster_path,seasons_json,is_anime&media_type=eq.tv&order=title.asc");
+}
+
+let searchTimer = null;
+$("#q").addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(doSearch, 250);
+});
+async function doSearch(){
+  const q = $("#q").value.trim().toLowerCase();
+  const box = $("#candidates");
+  if(q.length < 2){ box.innerHTML = ""; return; }
+  try{ await loadLibrary(); }
+  catch(e){ box.innerHTML = '<p style="color:var(--danger)">' + esc(e.message) + '</p>'; return; }
+  const hits = library.filter(x => (x.title||"").toLowerCase().includes(q)).slice(0, 8);
+  if(!hits.length){ box.innerHTML = '<p style="color:var(--muted)">Nessuna serie trovata in libreria.</p>'; return; }
+  box.innerHTML = hits.map(x => {
+    const img = x.poster_path ? '<img src="' + IMG + x.poster_path + '" alt="">' : '<div style="width:42px;height:63px;border-radius:6px;background:var(--surface-2)"></div>';
+    const ns = (x.seasons_json || []).length;
+    const ne = (x.seasons_json || []).reduce((a,s)=>a+s.c,0);
+    return '<div class="candidate" onclick="pickShow(' + x.tmdb_id + ')">' + img +
+      '<div class="info"><div class="nm">' + esc(x.title) + '</div>' +
+      '<div class="meta">' + ns + ' stagion' + (ns===1?'e':'i') + ' &middot; ' + ne + ' episodi</div></div></div>';
+  }).join("");
+}
+
+/* ============ COSTRUZIONE PIANO DI DIVISIONE ============ */
+async function pickShow(tmdbId){
+  const it = library.find(x => x.tmdb_id === tmdbId);
+  if(!it) return;
+  $("#previewCard").style.display = "block";
+  $("#previewTitle").textContent = "2. Anteprima: " + it.title;
+  $("#previewBody").innerHTML = "";
+  $("#btnApply").style.display = "none";
+  setStatus("Analizzo la struttura su TMDB...");
+  $("#previewCard").scrollIntoView({ behavior: "smooth" });
+
+  try{
+    // scarica la struttura attuale delle stagioni da TMDB
+    const show = await tmdb("/tv/" + tmdbId, {});
+    const tmdbSeasons = (show.seasons || []).filter(s => s.season_number > 0 && s.episode_count > 0);
+
+    // costruisci la lista episodi in ORDINE ASSOLUTO con le date
+    let absEps = [];
+    for(const s of tmdbSeasons){
+      const sd = await tmdb("/tv/" + tmdbId + "/season/" + s.season_number, {});
+      for(const e of (sd.episodes || [])){
+        absEps.push({ season: s.season_number, episode: e.episode_number, air_date: e.air_date || null, name: e.name || "" });
+      }
+    }
+    // ordina per data (o per stagione/episodio se manca la data)
+    absEps.sort((a, b) => {
+      if(a.air_date && b.air_date) return a.air_date < b.air_date ? -1 : 1;
+      if(a.season !== b.season) return a.season - b.season;
+      return a.episode - b.episode;
+    });
+
+    // TENTATIVO 1: episode group ufficiale di tipo "stagioni"
+    let plan = await planFromGroups(tmdbId, absEps);
+    let method = "group";
+    // TENTATIVO 2: divisione per date
+    if(!plan){
+      plan = planFromDates(absEps);
+      method = "dates";
+    }
+    if(!plan || plan.length < 2){
+      setStatus("Non sono riuscito a trovare una divisione sensata per questa serie.\nTMDB non ha un raggruppamento e le date non bastano. Meglio lasciarla com'\u00e8.");
+      return;
+    }
+
+    currentPlan = { tmdbId: tmdbId, title: it.title, plan: plan, absEps: absEps, method: method };
+    renderPreview();
+  }catch(e){
+    console.error(e);
+    setStatus("Errore: " + e.message);
+  }
+}
+
+// Cerca un episode group ufficiale che divida in stagioni (type 6=Production o simili con piu' gruppi)
+async function planFromGroups(tmdbId, absEps){
+  let groups;
+  try{ groups = await tmdb("/tv/" + tmdbId + "/episode_groups", {}); }
+  catch(e){ return null; }
+  const list = (groups.results || []).filter(g => g.group_count >= 2 && g.episode_count > 0);
+  if(!list.length) return null;
+  // preferisci i tipi che rappresentano stagioni: 6=Production, 1=Original air date, 7=TV, poi altri
+  const priority = { 6: 0, 7: 1, 1: 2, 5: 3, 4: 4, 3: 5, 2: 6 };
+  list.sort((a, b) => (priority[a.type] ?? 9) - (priority[b.type] ?? 9) || b.group_count - a.group_count);
+
+  for(const g of list){
+    let detail;
+    try{ detail = await tmdb("/tv/episode_group/" + g.id, {}); }
+    catch(e){ continue; }
+    const grps = (detail.groups || []).filter(x => (x.episodes || []).length > 0);
+    if(grps.length < 2) continue;
+    // ordina i gruppi per "order" se presente
+    grps.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    const plan = grps.map(gr => {
+      const eps = (gr.episodes || []).map(e => ({
+        season: e.season_number, episode: e.episode_number,
+        air_date: e.air_date || null, name: e.name || ""
+      }));
+      // ordina per data interna
+      eps.sort((a, b) => {
+        if(a.air_date && b.air_date) return a.air_date < b.air_date ? -1 : 1;
+        return 0;
+      });
+      return { name: gr.name || "Parte", eps: eps };
+    }).filter(x => x.eps.length > 0);
+    if(plan.length >= 2) return plan;
+  }
+  return null;
+}
+
+// Fallback: dividi per buchi temporali (>60 giorni = nuova stagione)
+function planFromDates(absEps){
+  const withDates = absEps.filter(e => e.air_date);
+  if(withDates.length < 4) return null;
+  const seasons = [];
+  let cur = [withDates[0]];
+  for(let i = 1; i < withDates.length; i++){
+    const gap = (new Date(withDates[i].air_date) - new Date(withDates[i-1].air_date)) / 86400000;
+    if(gap > 60){ seasons.push(cur); cur = [withDates[i]]; }
+    else cur.push(withDates[i]);
+  }
+  seasons.push(cur);
+  if(seasons.length < 2) return null;
+  return seasons.map((eps, i) => ({ name: "Stagione " + (i + 1), eps: eps }));
+}
+
+/* ============ ANTEPRIMA ============ */
+function renderPreview(){
+  const { plan, method, absEps } = currentPlan;
+  const tag = method === "group"
+    ? '<span class="tag group">divisione ufficiale TMDB</span>'
+    : '<span class="tag dates">stimata dalle date</span>';
+  let html = '<p style="margin-bottom:12px">La serie verr&agrave; divisa in <b>' + plan.length + ' stagioni</b> ' + tag + '</p>';
+  plan.forEach((s, i) => {
+    const first = s.eps[0], last = s.eps[s.eps.length - 1];
+    html += '<div class="preview-season">' +
+      '<div class="h">Stagione ' + (i + 1) + ' &middot; ' + s.eps.length + ' episodi</div>' +
+      '<div class="d">' + esc(s.name) + '<br>dal ' + dt(first.air_date) + ' al ' + dt(last.air_date) + '</div></div>';
+  });
+  if(method === "dates"){
+    html += '<p style="color:var(--danger);font-size:12px;margin-top:6px">&#9888;&#65039; Divisione stimata dalle date: le due parti di una stessa stagione (cour) con mesi di pausa potrebbero risultare separate. Controlla che abbia senso prima di applicare.</p>';
+  }
+  $("#previewBody").innerHTML = html;
+  setStatus("Le tue puntate viste verranno rimappate automaticamente alle nuove stagioni.");
+  $("#btnApply").style.display = "block";
+}
+
+/* ============ APPLICAZIONE ============ */
+$("#btnCancel").addEventListener("click", () => {
+  $("#previewCard").style.display = "none";
+  currentPlan = null;
+});
+
+$("#btnApply").addEventListener("click", async () => {
+  if(!currentPlan) return;
+  if(!confirm("Applicare la divisione in " + currentPlan.plan.length + " stagioni per " + currentPlan.title + "?\n\nLe puntate viste verranno rimappate. L'operazione riscrive i dati di questa serie.")) return;
+  $("#btnApply").disabled = true;
+  $("#btnCancel").disabled = true;
+  const { tmdbId, plan, absEps } = currentPlan;
+
+  try{
+    // 1) costruisci la mappa: vecchia (season-episode) -> nuova (season-episode)
+    // La chiave e' l'identita' dell'episodio su TMDB (season_number+episode_number originali).
+    setStatus("Costruisco la mappa di conversione...");
+    const remap = {};   // "oldSeason-oldEp" -> {s, e}
+    plan.forEach((s, si) => {
+      s.eps.forEach((ep, ei) => {
+        remap[ep.season + "-" + ep.episode] = { s: si + 1, e: ei + 1 };
+      });
+    });
+
+    // 2) scarica le puntate viste attuali di questa serie
+    setStatus("Scarico le puntate viste...");
+    const watched = await sbAll("showtime_episodes?select=season,episode&tmdb_id=eq." + tmdbId);
+
+    // 3) calcola le nuove righe rimappate
+    const newRows = [];
+    let lost = 0;
+    for(const w of watched){
+      const key = w.season + "-" + w.episode;
+      const nw = remap[key];
+      if(nw) newRows.push({ tmdb_id: tmdbId, season: nw.s, episode: nw.e });
+      else lost++;
+    }
+
+    // 4) nuovo seasons_json
+    const newSeasons = plan.map((s, i) => ({ n: i + 1, c: s.eps.length }));
+
+    // 5) SCRITTURA: prima cancella le vecchie spunte, poi inserisci le nuove, poi aggiorna seasons_json
+    setStatus("Aggiorno la struttura delle stagioni...");
+    await sb("showtime_items?tmdb_id=eq." + tmdbId + "&media_type=eq.tv", {
+      method: "PATCH", body: { seasons_json: newSeasons }
+    });
+
+    setStatus("Rimappo le puntate viste (" + newRows.length + ")...");
+    await sb("showtime_episodes?tmdb_id=eq." + tmdbId, { method: "DELETE" });
+    try{
+      for(let i = 0; i < newRows.length; i += 400){
+        await sb("showtime_episodes?on_conflict=user_id,tmdb_id,season,episode", {
+          method: "POST",
+          headers: { "Prefer": "resolution=merge-duplicates" },
+          body: newRows.slice(i, i + 400)
+        });
+      }
+    }catch(insErr){
+      // RIPRISTINO: qualcosa e' andato storto, rimetti le spunte originali
+      setStatus("Problema durante la scrittura: ripristino le spunte originali...");
+      const oldRows = watched.map(w => ({ tmdb_id: tmdbId, season: w.season, episode: w.episode }));
+      for(let i = 0; i < oldRows.length; i += 400){
+        await sb("showtime_episodes?on_conflict=user_id,tmdb_id,season,episode", {
+          method: "POST",
+          headers: { "Prefer": "resolution=merge-duplicates" },
+          body: oldRows.slice(i, i + 400)
+        });
+      }
+      throw new Error("scrittura fallita, spunte originali ripristinate (" + insErr.message + ")");
+    }
+
+    setStatus("\u2705 Fatto! " + currentPlan.title + " ora ha " + plan.length + " stagioni.\n" +
+      newRows.length + " puntate viste rimappate" + (lost ? " (" + lost + " non rimappate: erano fuori dalla nuova struttura)" : "") +
+      ".\n\nRicarica ShowTime per vedere il risultato.");
+    $("#btnApply").style.display = "none";
+    $("#btnCancel").textContent = "Sistema un'altra serie";
+    $("#btnCancel").disabled = false;
+    library = [];   // forza ricarica libreria
+  }catch(e){
+    console.error(e);
+    setStatus("\u274c Errore durante l'applicazione: " + e.message + "\nNessun dato dovrebbe essere andato perso, ma controlla la serie in ShowTime.");
+    $("#btnApply").disabled = false;
+    $("#btnCancel").disabled = false;
+  }
+});
+</script>
+</body>
+</html>
