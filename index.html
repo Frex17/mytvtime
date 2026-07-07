@@ -710,17 +710,47 @@ async function sb(path, opts){
 }
 
 async function sbAll(path){
-  const out = [];
   const page = 1000;
-  for(let off = 0; ; off += page){
-    const rows = await sb(path, { headers: { "Range-Unit": "items", "Range": off + "-" + (off + page - 1) } });
-    if(rows && rows.length) out.push.apply(out, rows);
-    if(!rows || rows.length < page) break;
+  // prima pagina + conteggio totale dall'header Content-Range
+  const first = await sbRange(path, 0, page - 1, true);
+  let rows = first.rows;
+  const total = first.total;
+  if(total == null || rows.length >= total) return rows;
+  // restanti pagine tutte in parallelo
+  const jobs = [];
+  for(let off = page; off < total; off += page){
+    jobs.push(sbRange(path, off, off + page - 1, false));
   }
-  return out;
+  const results = await Promise.all(jobs);
+  for(const r of results) rows = rows.concat(r.rows || r);
+  return rows;
+}
+async function sbRange(path, from, to, wantCount){
+  const token = await authToken();
+  if(!token) throw new Error("non autenticato");
+  const headers = {
+    "apikey": SUPABASE_ANON_KEY,
+    "Authorization": "Bearer " + token,
+    "Range-Unit": "items",
+    "Range": from + "-" + to
+  };
+  if(wantCount) headers["Prefer"] = "count=exact";
+  const res = await fetch(SUPABASE_URL + "/rest/v1/" + path, { headers: headers });
+  const rows = await res.json();
+  let total = null;
+  if(wantCount){
+    const cr = res.headers.get("content-range");    // es. "0-999/19050"
+    if(cr && cr.includes("/")){
+      const t = cr.split("/")[1];
+      if(t && t !== "*") total = parseInt(t);
+    }
+  }
+  return { rows: Array.isArray(rows) ? rows : [], total: total };
 }
 
 async function loadLibrary(){
+  const shownFromCache = items.length > 0;   // la cache e' gia' a schermo dal boot
+  // scarica i dati freschi dal server (in parallelo)
   try{
     const r = await Promise.all([
       sbAll("showtime_items?select=*&order=added_at.desc"),
@@ -728,12 +758,15 @@ async function loadLibrary(){
     ]);
     items = r[0] || [];
     episodes = r[1] || [];
+    setOffline(false);
     saveCache();
     renderAll();
     setTimeout(updateSchedules, 1500);
   }catch(e){
     console.error(e);
-    if(loadFromCache()){
+    if(shownFromCache){
+      setOffline(true);   // gia' mostrata la cache: segnala solo che sei offline
+    }else if(loadFromCache()){
       renderAll();
       setOffline(true);
     }else{
@@ -2582,8 +2615,27 @@ $("#mLogout").addEventListener("click", async () => {
 
 /* ================= INIT ================= */
 if("serviceWorker" in navigator){
-  navigator.serviceWorker.register("sw.js").catch(()=>{});
+  navigator.serviceWorker.register("sw.js").then(reg => {
+    // se arriva un aggiornamento del SW, ricarica una volta sola quando prende il controllo
+    let refreshed = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if(refreshed) return;
+      refreshed = true;
+      location.reload();
+    });
+    if(reg && reg.update) reg.update();
+  }).catch(()=>{});
 }
+
+// disegna SUBITO la libreria dalla cache locale, senza aspettare l'autenticazione:
+// e' un'operazione puramente locale, cosi' le serie compaiono all'istante.
+let cacheShown = false;
+if(loadFromCache() && items.length){
+  hideLogin();          // se ho una cache, ero gia' loggato: niente schermata di login mentre verifico
+  renderAll();
+  cacheShown = true;
+}
+
 let bootDone = false;
 sbClient.auth.onAuthStateChange((ev, session) => {
   if(session){
@@ -2594,7 +2646,9 @@ sbClient.auth.onAuthStateChange((ev, session) => {
       if(!tmdbKey()) setTimeout(openSettings, 600);
     }
   }else{
-    showLogin();
+    // nessuna sessione valida: se avevo mostrato la cache, ora devo comunque far accedere
+    if(!cacheShown) showLogin();
+    else { showLogin(); }   // sessione scaduta: la cache resta visibile dietro, ma serve rifare login
   }
 });
 </script>
