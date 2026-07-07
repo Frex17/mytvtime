@@ -83,11 +83,18 @@ a.back{color:var(--muted);font-size:13px;text-decoration:none;display:inline-blo
     <div id="candidates" style="margin-top:12px"></div>
   </div>
 
+  <div class="card" id="backupCard">
+    <h2>Correzioni</h2>
+    <p>Ogni divisione applicata salva un backup su questo computer: da qui puoi annullarla e tornare a com'era prima.</p>
+    <div id="backupList" style="margin-top:10px"><p style="color:var(--muted);font-size:13px">Nessun backup ancora.</p></div>
+  </div>
+
   <div class="card" id="previewCard" style="display:none">
     <h2 id="previewTitle">2. Anteprima divisione</h2>
     <div id="previewBody"></div>
     <div id="status"></div>
     <button class="btn" id="btnApply" style="display:none">Applica questa divisione</button>
+    <button class="btn ghost" id="btnReset" style="display:none;margin-top:8px">&#8634; Riporta alla struttura TMDB originale</button>
     <button class="btn" id="btnNext" style="display:none;margin-top:8px">Prossima serie della scansione &rarr;</button>
     <button class="btn ghost" id="btnCancel" style="margin-top:8px">Annulla</button>
   </div>
@@ -165,7 +172,7 @@ let currentPlan = null;
 
 async function loadLibrary(){
   if(library.length) return;
-  library = await sbAll("showtime_items?select=tmdb_id,title,poster_path,seasons_json,is_anime&media_type=eq.tv&order=title.asc");
+  library = await sbAll("showtime_items?select=tmdb_id,title,poster_path,seasons_json,season_map,is_anime&media_type=eq.tv&order=title.asc");
 }
 
 /* ============ SCANSIONE AUTOMATICA ============ */
@@ -287,6 +294,31 @@ async function pickShow(tmdbId){
       if(a.season !== b.season) return a.season - b.season;
       return a.episode - b.episode;
     });
+
+    // CASO SPECIALE: serie gia' divisa in passato ma senza mappa episodi salvata
+    // (le stagioni custom nel DB non combaciano con TMDB): rigenera solo la mappa.
+    const dbSeasons = it.seasons_json || [];
+    const dbTotal = dbSeasons.reduce((a, x) => a + x.c, 0);
+    const alreadySplit = dbSeasons.length >= 2 && tmdbSeasons.length !== dbSeasons.length && !it.season_map;
+    if(alreadySplit && dbTotal === absEps.length){
+      let pos = 0;
+      const regenMap = dbSeasons.map(st => {
+        const arr = [];
+        for(let e = 0; e < st.c; e++){ arr.push([absEps[pos].season, absEps[pos].episode]); pos++; }
+        return arr;
+      });
+      setStatus("Questa serie era gi\u00e0 stata divisa: rigenero la mappa episodi...");
+      await sb("showtime_items?tmdb_id=eq." + tmdbId + "&media_type=eq.tv", {
+        method: "PATCH", body: { season_map: regenMap }
+      });
+      setStatus("\u2705 Mappa episodi rigenerata per " + it.title + " (" + dbSeasons.length + " stagioni).\nOra nomi, date ed episodi si caricano correttamente. Ricarica ShowTime.");
+      library = [];
+      return;
+    }
+    if(alreadySplit && dbTotal !== absEps.length){
+      setStatus("\u26a0\ufe0f Questa serie era stata divisa escludendo dei blocchi (" + dbTotal + " episodi vs " + absEps.length + " su TMDB): non posso rigenerare la mappa in automatico.\nSe vuoi, ricontatta l\u0027assistente per sistemarla a mano.");
+      return;
+    }
 
     // TENTATIVO 1: episode group ufficiale di tipo "stagioni"
     let plan = await planFromGroups(tmdbId, absEps);
@@ -477,8 +509,9 @@ $("#btnApply").addEventListener("click", async () => {
 
     // 5) SCRITTURA: prima cancella le vecchie spunte, poi inserisci le nuove, poi aggiorna seasons_json
     setStatus("Aggiorno la struttura delle stagioni...");
+    const seasonMap = plan.map(b => b.eps.map(ep => [ep.season, ep.episode]));
     await sb("showtime_items?tmdb_id=eq." + tmdbId + "&media_type=eq.tv", {
-      method: "PATCH", body: { seasons_json: newSeasons }
+      method: "PATCH", body: { seasons_json: newSeasons, season_map: seasonMap }
     });
 
     setStatus("Rimappo le puntate viste (" + newRows.length + ")...");
