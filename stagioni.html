@@ -249,8 +249,12 @@ async function doSearch(){
 
 /* ============ COSTRUZIONE PIANO DI DIVISIONE ============ */
 async function pickShow(tmdbId){
+  if(!library.length){
+    try{ await loadLibrary(); }
+    catch(e){ alert("Errore nel ricaricare la libreria: " + e.message); return; }
+  }
   const it = library.find(x => x.tmdb_id === tmdbId);
-  if(!it) return;
+  if(!it){ alert("Serie non trovata in libreria."); return; }
   $("#previewCard").style.display = "block";
   $("#btnNext").style.display = "none";
   $("#previewTitle").textContent = "Anteprima: " + it.title;
