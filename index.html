@@ -151,6 +151,8 @@ h2.section:first-child{margin-top:2px}
 .card-body{flex:1;min-width:0}
 .card-title{font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .card-sub{font-size:12px;color:var(--muted);margin-top:2px}
+.card-epname{font-size:13px;color:var(--cream);margin-top:3px;font-weight:500;
+  display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden;min-height:16px}
 .badge{
   display:inline-block;font-size:10px;letter-spacing:1px;font-weight:700;
   color:var(--gold);border:1px solid var(--gold);border-radius:5px;
@@ -872,6 +874,27 @@ function detectCartoon(d, isAnime){
   return (d.genres || []).some(g => g.id === 16);   // animazione non orientale = cartoon
 }
 
+// carica gli episodi di una stagione, traducendo i nomi ancora in CJK con la versione inglese
+async function fetchSeasonEpisodes(tmdbId, season){
+  const d = await tmdb("/tv/" + tmdbId + "/season/" + season, {});   // it-IT
+  let eps = d.episodes || [];
+  // se qualche nome e' ancora in giapponese/cinese/coreano, prova l'inglese per quelli
+  if(eps.some(e => CJK.test(e.name || ""))){
+    try{
+      const en = await tmdb("/tv/" + tmdbId + "/season/" + season, { language: "en-US" });
+      const enMap = {};
+      for(const e of (en.episodes || [])) enMap[e.episode_number] = e.name || "";
+      eps = eps.map(e => {
+        if(CJK.test(e.name || "") && enMap[e.episode_number] && !CJK.test(enMap[e.episode_number])){
+          return Object.assign({}, e, { name: enMap[e.episode_number] });
+        }
+        return e;
+      });
+    }catch(err){ /* se fallisce, teniamo i nomi it/originali */ }
+  }
+  return eps;
+}
+
 /* ================= PROGRESS LOGIC ================= */
 function watchedSet(tmdbId){
   const set = new Set();
@@ -1078,6 +1101,30 @@ function posterOf(it, fallback){
 }
 
 function pad2(n){ return n < 10 ? "0" + n : "" + n; }
+function epNameCached(tmdbId, season, ep){
+  const eps = seasonCache[tmdbId + "-" + season];
+  if(!eps) return null;
+  const m = eps.find(x => x.episode_number === ep);
+  return m ? (m.name || "") : "";
+}
+// carica in background i nomi episodi di una stagione, poi aggiorna le card gia' a schermo
+const seasonMetaPending = {};
+async function ensureSeasonMeta(tmdbId, season){
+  const key = tmdbId + "-" + season;
+  if(seasonCache[key] || seasonMetaPending[key]) return;
+  if(!navigator.onLine || !tmdbKey()) return;
+  seasonMetaPending[key] = true;
+  try{
+    seasonCache[key] = await fetchSeasonEpisodes(tmdbId, season);
+    // aggiorna eventuali nomi episodio gia' renderizzati per questa serie
+    document.querySelectorAll('[data-epname="' + key + '"]').forEach(el => {
+      const ep = parseInt(el.dataset.epnum);
+      const nm = epNameCached(tmdbId, season, ep);
+      if(nm) el.textContent = nm;
+    });
+  }catch(e){ /* silenzioso */ }
+  finally{ delete seasonMetaPending[key]; }
+}
 function daysAgoStr(n){
   return new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
 }
@@ -1089,13 +1136,18 @@ function cardNext(it, p){
   const isNew = it.last_air_date && it.last_air_date >= daysAgoStr(7) && it.last_air_label === nextLabel;
   let nuovo = "";
   if(isNew) nuovo = '<div><span class="badge-new">' + (p.next.e === 1 ? "PREMIERE" : "NUOVO") + '</span></div>';
+  const key = it.tmdb_id + "-" + p.next.s;
+  const cachedName = epNameCached(it.tmdb_id, p.next.s, p.next.e);
+  if(cachedName === null) ensureSeasonMeta(it.tmdb_id, p.next.s);   // carica in background
+  const nameHtml = '<div class="card-epname" data-epname="' + key + '" data-epnum="' + p.next.e + '">' +
+    esc(cachedName || "") + '</div>';
   return swipeWrap(
     '<div class="card swipeable" data-act="next:' + it.tmdb_id + '" data-act-left="prev:' + it.tmdb_id + '" onclick="openDetail(' + it.tmdb_id + ',\u0027tv\u0027)">' +
       posterOf(it, "&#127909;") +
       '<div class="card-body">' +
         '<div class="card-title">' + esc(it.title) + '</div>' +
         '<div class="next-big">S' + pad2(p.next.s) + ' | E' + pad2(p.next.e) + plus + '</div>' +
-        '<div class="card-sub">' + p.watched + ' / ' + p.total + ' episodi</div>' +
+        nameHtml +
         '<div class="progress"><div style="width:' + pct + '%"></div></div>' +
         nuovo +
       '</div>' +
@@ -1112,11 +1164,21 @@ function cardUpcoming(it, c){
   const what = c.label ? c.label + " &middot; " : "";
   const net = it.network ? " &middot; " + esc(it.network) : "";
   const sub = c.date ? what + "in onda" + net : "in attesa di annuncio" + net;
+  // nome episodio in arrivo (se conosciamo il numero e la stagione)
+  let nameHtml = "";
+  if(p.next){
+    const key = it.tmdb_id + "-" + p.next.s;
+    const cachedName = epNameCached(it.tmdb_id, p.next.s, p.next.e);
+    if(cachedName === null) ensureSeasonMeta(it.tmdb_id, p.next.s);
+    nameHtml = '<div class="card-epname" data-epname="' + key + '" data-epnum="' + p.next.e + '">' +
+      esc(cachedName || "") + '</div>';
+  }
   return swipeWrap('<div class="card swipeable" data-act-left="prev:' + it.tmdb_id + '" onclick="openDetail(' + it.tmdb_id + ',\u0027tv\u0027)">' +
     posterOf(it, "&#127909;") +
     '<div class="card-body">' +
       '<div class="card-title">' + esc(it.title) + '</div>' +
       '<div class="card-sub">' + sub + '</div>' +
+      nameHtml +
       '<div class="progress"><div class="up" style="width:' + pct + '%"></div></div>' +
     '</div>' + airPill(c.date) + '</div>');
 }
@@ -1468,8 +1530,7 @@ async function markSeason(tmdbId, season, count){
   const key = tmdbId + "-" + season;
   if(!seasonCache[key]){
     try{
-      const d = await tmdb("/tv/" + tmdbId + "/season/" + season, {});
-      seasonCache[key] = d.episodes || [];
+      seasonCache[key] = await fetchSeasonEpisodes(tmdbId, season);
     }catch(e){
       console.error(e);
       toast("Impossibile verificare le date di uscita, riprova");
@@ -1873,8 +1934,7 @@ async function markAllSeries(){
     try{
       const key = it.tmdb_id + "-" + lastSeason.n;
       if(!seasonCache[key]){
-        const d = await tmdb("/tv/" + it.tmdb_id + "/season/" + lastSeason.n, {});
-        seasonCache[key] = d.episodes || [];
+        seasonCache[key] = await fetchSeasonEpisodes(it.tmdb_id, lastSeason.n);
       }
       const t = todayStr();
       for(const m of seasonCache[key]){
@@ -2028,8 +2088,7 @@ async function toggleSeason(season, count){
   try{
     const key = it.tmdb_id + "-" + season;
     if(!seasonCache[key]){
-      const d = await tmdb("/tv/" + it.tmdb_id + "/season/" + season, {});
-      seasonCache[key] = d.episodes || [];
+      seasonCache[key] = await fetchSeasonEpisodes(it.tmdb_id, season);
     }
     renderSeasonBody(season, count);
   }catch(e){
@@ -2477,7 +2536,7 @@ $("#mInfo").addEventListener("click", () => {
   let cacheKb = 0;
   try{ cacheKb = Math.round((localStorage.getItem("showtime_cache") || "").length / 1024); }catch(e){}
   $("#infoBody").innerHTML =
-    "<b style=\"color:var(--cream)\">ShowTime v22</b><br>" +
+    "<b style=\"color:var(--cream)\">ShowTime v23</b><br>" +
     "Dati di TMDB &middot; salvataggio su Supabase<br>" +
     "Serie: " + nSerie + " &middot; Anime: " + nAnime + " &middot; Film: " + nFilm + "<br>" +
     "Episodi segnati: " + episodes.length.toLocaleString("it-IT") + "<br>" +
