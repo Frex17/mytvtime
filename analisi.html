@@ -52,10 +52,12 @@ h1 .gold{color:var(--gold)}
 }
 .mini:active{background:var(--gold);color:#181307}
 .resolved{color:var(--gold-light);font-size:12px}
+a.back{color:var(--muted);font-size:13px;text-decoration:none;display:inline-block;margin-bottom:16px}
 </style>
 </head>
 <body>
 <div class="wrap">
+  <a class="back" href="index.html">&larr; Torna a ShowTime</a>
   <h1><span class="gold">Show</span>Time</h1>
   <div class="sub">Analisi completa della libreria contro TMDB</div>
 
@@ -215,8 +217,6 @@ async function run(){
     try{
       const d = await tmdb("/tv/" + it.tmdb_id, { append_to_response: "translations" });
       const patch = {
-        seasons_json: (d.seasons || []).filter(x => x.season_number > 0 && x.episode_count > 0)
-          .map(x => ({ n: x.season_number, c: x.episode_count })),
         show_status: d.status || null,
         next_air_date: (d.next_episode_to_air && d.next_episode_to_air.air_date) || null,
         next_air_label: d.next_episode_to_air ? ("S" + d.next_episode_to_air.season_number + " E" + d.next_episode_to_air.episode_number) : null,
@@ -248,6 +248,10 @@ async function run(){
       else doubt = origins.length === 0 && !lang;   // cartoon occidentale dichiarato = serie senza dubbio
       patch.anime_doubt = (it.anime_doubt === false) ? false : doubt;
       patch.is_cartoon = !patch.is_anime && isAnimation;
+      if(!it.season_map){
+        patch.seasons_json = (d.seasons || []).filter(x => x.season_number > 0 && x.episode_count > 0)
+          .map(x => ({ n: x.season_number, c: x.episode_count }));
+      }
       patch.network = (d.networks && d.networks[0] && d.networks[0].name) || it.network || null;
       await sb("showtime_items?tmdb_id=eq." + it.tmdb_id + "&media_type=eq.tv", { method: "PATCH", body: patch });
       Object.assign(it, patch);
