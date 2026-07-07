@@ -20,7 +20,7 @@ self.addEventListener("fetch", (e) => {
   // Never cache API calls (Supabase / TMDB): always network
   if (url.origin !== self.location.origin) return;
   // Gli STRUMENTI (analisi, stagioni, import, ripara) devono essere sempre freschi: network-first
-  const TOOLS = ["/analisi.html", "/stagioni.html", "/import.html", "/ripara.html"];
+  const TOOLS = ["/analisi.html", "/stagioni.html", "/import.html", "/ripara.html", "/strumenti.html"];
   if(TOOLS.some(t => url.pathname.endsWith(t))){
     e.respondWith(
       fetch(e.request)
