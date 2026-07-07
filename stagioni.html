@@ -257,6 +257,8 @@ async function pickShow(tmdbId){
   if(!it){ alert("Serie non trovata in libreria."); return; }
   $("#previewCard").style.display = "block";
   $("#btnNext").style.display = "none";
+  $("#btnApply").disabled = false;
+  $("#btnCancel").disabled = false;
   $("#previewTitle").textContent = "Anteprima: " + it.title;
   $("#previewBody").innerHTML = "";
   $("#btnApply").style.display = "none";
