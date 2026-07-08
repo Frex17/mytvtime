@@ -69,6 +69,13 @@ a.back{color:var(--muted);font-size:13px;text-decoration:none;display:inline-blo
   <h1><span class="gold">Show</span>Time</h1>
   <div class="sub">Dividi in stagioni gli anime che TMDB tiene in un blocco unico.<br>Una serie alla volta, con anteprima e conferma. Le puntate viste vengono rimappate senza perdite.</div>
 
+  <div class="card" id="resetCard" style="border-color:var(--danger)">
+    <h2>Ripristino totale</h2>
+    <p>Trova tutte le serie divise a mano (anche quelle che non ricordi) e le riporta alla struttura originale TMDB, recuperando le puntate viste convertibili. Da usare per ripartire da zero.</p>
+    <button class="btn danger" id="btnFullReset">Trova e ripristina tutto</button>
+    <div id="resetLog" style="font-size:12.5px;color:var(--muted);font-family:monospace;margin-top:10px;white-space:pre-wrap;line-height:1.6"></div>
+  </div>
+
   <div class="card" id="scanCard">
     <h2>Scansione automatica</h2>
     <p>Trova tutte le serie con il problema di Re:Zero: una stagione unica con troppi episodi. Poi le sistemi una alla volta.</p>
@@ -173,6 +180,149 @@ let currentPlan = null;
 async function loadLibrary(){
   if(library.length) return;
   library = await sbAll("showtime_items?select=tmdb_id,title,poster_path,seasons_json,season_map,is_anime&media_type=eq.tv&order=title.asc");
+}
+
+/* ============ RIPRISTINO TOTALE ============ */
+function rlog(t){ const el = $("#resetLog"); el.textContent += t + "\n"; }
+
+$("#btnFullReset").addEventListener("click", async () => {
+  if(!confirm("Cercare tutte le serie divise a mano e riportarle alla struttura TMDB originale?\n\nLe puntate viste convertibili vengono conservate; dopo, con Ripara (zip di TV Time) recuperi anche il resto.")) return;
+  $("#btnFullReset").disabled = true;
+  $("#resetLog").textContent = "";
+  try{
+    library = [];
+    await loadLibrary();
+    rlog("Serie in libreria: " + library.length);
+    // candidati: chi ha la mappa custom + gli anime multi-stagione da verificare su TMDB
+    const multi = library.filter(x => (x.seasons_json || []).length >= 2);
+    const sure = multi.filter(x => x.season_map);
+    const toCheck = multi.filter(x => !x.season_map && x.is_anime);
+    rlog("Da verificare su TMDB: " + toCheck.length + " anime multi-stagione...");
+    const found = sure.map(x => ({ it: x }));
+    for(let i = 0; i < toCheck.length; i += 4){
+      const batch = toCheck.slice(i, i + 4);
+      const results = await Promise.allSettled(batch.map(async x => {
+        const d = await tmdb("/tv/" + x.tmdb_id, {});
+        const native = (d.seasons || []).filter(t => t.season_number > 0 && t.episode_count > 0);
+        return { x: x, native: native };
+      }));
+      for(const r of results){
+        if(r.status !== "fulfilled") continue;
+        // TMDB mono-stagione ma nel DB multi = divisione fatta a mano
+        if(r.value.native.length === 1 && (r.value.x.seasons_json || []).length >= 2){
+          found.push({ it: r.value.x, native: r.value.native });
+        }
+      }
+      if(i % 20 === 0 && i > 0) rlog("  ..." + Math.min(i + 4, toCheck.length) + "/" + toCheck.length);
+      await sleep(120);
+    }
+    if(!found.length){
+      rlog("Nessuna serie divisa a mano trovata. Tutto gi\u00e0 originale. \u2705");
+      $("#btnFullReset").disabled = false;
+      return;
+    }
+    rlog("");
+    rlog("Trovate " + found.length + " serie da ripristinare:");
+    for(const f of found) rlog("  \u2022 " + f.it.title);
+    rlog("");
+    let okCount = 0;
+    for(const f of found){
+      try{
+        await resetOne(f.it);
+        okCount++;
+      }catch(e){
+        console.error(e);
+        rlog("  \u274c " + f.it.title + ": " + e.message);
+      }
+    }
+    rlog("");
+    rlog("\ud83c\udfc1 Ripristino completato: " + okCount + "/" + found.length + " serie tornate originali.");
+    rlog("");
+    rlog("PROSSIMI PASSI:");
+    rlog("1. Apri ripara.html col tuo gdpr-data.zip: recupera le spunte perse");
+    rlog("2. Torna qui, Scansiona la libreria e rifai le divisioni (ora sicure)");
+    library = [];
+    scanQueue = [];
+    $("#scanList").innerHTML = "";
+  }catch(e){
+    console.error(e);
+    rlog("ERRORE: " + e.message);
+  }
+  $("#btnFullReset").disabled = false;
+});
+
+async function resetOne(it){
+  rlog("\u21ba " + it.title + "...");
+  // struttura nativa TMDB + episodi in ordine assoluto (per convertire le spunte custom)
+  const d = await tmdb("/tv/" + it.tmdb_id, {});
+  const native = (d.seasons || []).filter(t => t.season_number > 0 && t.episode_count > 0);
+  let absEps = [];
+  for(const t of native){
+    const sd = await tmdb("/tv/" + it.tmdb_id + "/season/" + t.season_number, {});
+    for(const e of (sd.episodes || [])){
+      absEps.push({ season: t.season_number, episode: e.episode_number, air_date: e.air_date || null });
+    }
+  }
+  absEps.sort((a, b) => {
+    if(a.air_date && b.air_date) return a.air_date < b.air_date ? -1 : 1;
+    if(a.season !== b.season) return a.season - b.season;
+    return a.episode - b.episode;
+  });
+
+  const watched = await sbAll("showtime_episodes?select=season,episode&tmdb_id=eq." + it.tmdb_id);
+  const dbSeasons = it.seasons_json || [];
+  const dbTotal = dbSeasons.reduce((a, x) => a + x.c, 0);
+  // offset di ogni stagione custom nella sequenza assoluta
+  const offsets = [];
+  let acc = 0;
+  for(const st of dbSeasons){ offsets.push(acc); acc += st.c; }
+
+  const seen = new Set();
+  const newRows = [];
+  let dropped = 0;
+  for(const w of watched){
+    let pair = null;
+    if(it.season_map && it.season_map[w.season - 1] && it.season_map[w.season - 1][w.episode - 1]){
+      const p = it.season_map[w.season - 1][w.episode - 1];
+      pair = { s: p[0], e: p[1] };
+    }else if(dbTotal === absEps.length && w.season >= 1 && w.season <= dbSeasons.length && w.episode >= 1 && w.episode <= dbSeasons[w.season - 1].c){
+      const pos = offsets[w.season - 1] + (w.episode - 1);
+      const a = absEps[pos];
+      if(a) pair = { s: a.season, e: a.episode };
+    }else{
+      // struttura non ricostruibile: tieni la riga solo se valida nella struttura nativa
+      const nt = native.find(x => x.season_number === w.season);
+      if(nt && w.episode <= nt.episode_count) pair = { s: w.season, e: w.episode };
+    }
+    if(pair){
+      const k = pair.s + "-" + pair.e;
+      if(!seen.has(k)){ seen.add(k); newRows.push({ tmdb_id: it.tmdb_id, season: pair.s, episode: pair.e }); }
+    }else dropped++;
+  }
+
+  const newSeasons = native.map(x => ({ n: x.season_number, c: x.episode_count }));
+  await sb("showtime_items?tmdb_id=eq." + it.tmdb_id + "&media_type=eq.tv", {
+    method: "PATCH", body: { seasons_json: newSeasons, season_map: null }
+  });
+  await sb("showtime_episodes?tmdb_id=eq." + it.tmdb_id, { method: "DELETE" });
+  try{
+    for(let i = 0; i < newRows.length; i += 400){
+      await sb("showtime_episodes?on_conflict=user_id,tmdb_id,season,episode", {
+        method: "POST", headers: { "Prefer": "resolution=merge-duplicates" },
+        body: newRows.slice(i, i + 400)
+      });
+    }
+  }catch(insErr){
+    const oldRows = watched.map(w => ({ tmdb_id: it.tmdb_id, season: w.season, episode: w.episode }));
+    for(let i = 0; i < oldRows.length; i += 400){
+      await sb("showtime_episodes?on_conflict=user_id,tmdb_id,season,episode", {
+        method: "POST", headers: { "Prefer": "resolution=merge-duplicates" },
+        body: oldRows.slice(i, i + 400)
+      });
+    }
+    throw new Error("scrittura fallita, spunte precedenti ripristinate");
+  }
+  rlog("  \u2705 " + newSeasons.length + " stagion" + (newSeasons.length === 1 ? "e" : "i") + " TMDB \u00b7 " + newRows.length + " spunte conservate" + (dropped ? " \u00b7 " + dropped + " non convertibili (le recuperi con Ripara)" : ""));
 }
 
 /* ============ SCANSIONE AUTOMATICA ============ */
