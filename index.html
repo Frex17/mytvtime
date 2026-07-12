@@ -979,11 +979,29 @@ function categorize(it){
   const label = "S" + p.next.s + " E" + p.next.e;
   // confronto in numerazione TMDB (per le serie divise a mano)
   const nx = mapPair(it, p.next.s, p.next.e);
-  const la = labelPos(it.last_air_label);
-  // il prossimo da vedere e' GIA' USCITO? (viene prima o coincide con l'ultima puntata andata in onda)
-  const nextAlreadyAired = la && (nx.s < la[0] || (nx.s === la[0] && nx.e <= la[1]));
-  // c'e' un episodio futuro programmato?
+  const mLabel = "S" + nx.s + " E" + nx.e;
   const hasUpcoming = !!futureDate;
+
+  // Il prossimo da vedere e' GIA' USCITO? Determinato con piu' segnali, in ordine di affidabilita':
+  let nextAlreadyAired;
+  const meta = metaCached(it, p.next.s, p.next.e);   // date reali se in cache
+  if(meta && meta.air_date){
+    // segnale migliore: la data reale dell'episodio
+    nextAlreadyAired = meta.air_date <= t;
+  }else if(it.next_air_label === mLabel && futureDate){
+    // il prossimo da vedere COINCIDE con la prossima uscita programmata futura -> non ancora uscito
+    nextAlreadyAired = false;
+  }else{
+    const la = labelPos(it.last_air_label);
+    if(la){
+      // confronta con l'ultima puntata andata in onda
+      nextAlreadyAired = (nx.s < la[0] || (nx.s === la[0] && nx.e <= la[1]));
+    }else{
+      // nessun dato sulle date: se la serie e' in corso assumiamo che il prossimo sia disponibile
+      // (meglio mostrarlo in "Da vedere" che nasconderlo)
+      nextAlreadyAired = true;
+    }
+  }
 
   if(nextAlreadyAired){
     // hai roba uscita da recuperare -> Da vedere.
@@ -1167,22 +1185,37 @@ function epNameCached(it, season, ep){
   if(meta === null) return null;
   return meta ? (meta.name || "") : "";
 }
-// carica in background i nomi episodi, poi aggiorna le card gia' a schermo
+// carica in background i nomi episodi con una coda a concorrenza limitata,
+// cosi' il primo render e' immediato e i nomi arrivano poco dopo, senza intasare la rete
 const seasonMetaPending = {};
-async function ensureSeasonMeta(it, season){
+const metaQueue = [];
+let metaActive = 0;
+const META_MAX = 3;
+function ensureSeasonMeta(it, season){
   const key = it.tmdb_id + "-" + season;
-  if(seasonMetaPending[key]) return;
+  if(seasonMetaPending[key] || seasonCache[key]) return;
   if(!navigator.onLine || !tmdbKey()) return;
   seasonMetaPending[key] = true;
+  metaQueue.push({ it: it, season: season, key: key });
+  pumpMetaQueue();
+}
+function pumpMetaQueue(){
+  while(metaActive < META_MAX && metaQueue.length){
+    const job = metaQueue.shift();
+    metaActive++;
+    runMetaJob(job).finally(() => { metaActive--; pumpMetaQueue(); });
+  }
+}
+async function runMetaJob(job){
   try{
-    await ensureMetaFor(it, season);
-    document.querySelectorAll('[data-epname="' + key + '"]').forEach(el => {
+    await ensureMetaFor(job.it, job.season);
+    document.querySelectorAll('[data-epname="' + job.key + '"]').forEach(el => {
       const ep = parseInt(el.dataset.epnum);
-      const nm = epNameCached(it, season, ep);
+      const nm = epNameCached(job.it, job.season, ep);
       if(nm) el.textContent = nm;
     });
   }catch(e){ /* silenzioso */ }
-  finally{ delete seasonMetaPending[key]; }
+  finally{ delete seasonMetaPending[job.key]; }
 }
 function daysAgoStr(n){
   return new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
