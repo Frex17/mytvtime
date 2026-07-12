@@ -1289,13 +1289,15 @@ function cardUpcoming(it, c){
   const what = c.label ? c.label + " &middot; " : "";
   const net = it.network ? " &middot; " + esc(it.network) : "";
   const sub = c.date ? what + "in onda" + net : "in attesa di annuncio" + net;
-  // nome episodio in arrivo (se conosciamo il numero e la stagione)
+  // nome dell'episodio IN ARRIVO: ricavato da c.label (es. "S1 E301"), non dal prossimo-da-vedere
   let nameHtml = "";
-  if(p.next){
-    const key = it.tmdb_id + "-" + p.next.s;
-    const cachedName = epNameCached(it, p.next.s, p.next.e);
-    if(cachedName === null) ensureSeasonMeta(it, p.next.s);
-    nameHtml = '<div class="card-epname" data-epname="' + key + '" data-epnum="' + p.next.e + '">' +
+  const lp = c.label ? labelPos(c.label) : null;
+  if(lp){
+    const upS = lp[0], upE = lp[1];
+    const key = it.tmdb_id + "-" + upS;
+    const cachedName = epNameCached(it, upS, upE);
+    if(cachedName === null) ensureSeasonMeta(it, upS);
+    nameHtml = '<div class="card-epname" data-epname="' + key + '" data-epnum="' + upE + '">' +
       esc(cachedName || "") + '</div>';
   }
   return swipeWrap('<div class="card swipeable" data-act-left="prev:' + it.tmdb_id + '" onclick="openDetail(' + it.tmdb_id + ',\u0027tv\u0027)">' +
@@ -2363,13 +2365,17 @@ document.addEventListener("pointerdown", e => {
     const it = items.find(i => i.tmdb_id === parseInt(act.split(":")[1]) && i.media_type === "tv");
     if(it){
       const p = progressOf(it);
-      const rem = Math.max(0, p.total - p.watched - 1);   // rimanenti DOPO il prossimo
-      let remTxt;
-      if(rem === 0) remTxt = "Nessun episodio rimanente";
-      else if(rem === 1) remTxt = "1 episodio rimanente";
-      else remTxt = rem + " episodi rimanenti";
-      const nm = p.next ? ("S" + p.next.s + " E" + p.next.e) : "";
-      bg.innerHTML = "&#10003; " + remTxt + (nm ? ' <span class="rem">&middot; ' + nm + "</span>" : "");
+      if(p.next){
+        // conta solo gli episodi GIA' USCITI che restano dopo quello che si sta segnando
+        const rem = remainingAfter(it, p.next.s, p.next.e);
+        let remTxt;
+        if(rem === 0) remTxt = "Nessun episodio rimanente";
+        else if(rem === 1) remTxt = "1 episodio rimanente";
+        else remTxt = rem + " episodi rimanenti";
+        // nome reale dell'episodio che si sta segnando (se in cache), altrimenti l'etichetta SxEy
+        const nm = epNameCached(it, p.next.s, p.next.e) || ("S" + p.next.s + " E" + p.next.e);
+        bg.innerHTML = "&#10003; " + remTxt + (nm ? ' <span class="rem">&middot; ' + nm + "</span>" : "");
+      }else bg.innerHTML = "&#10003; Vista";
     }else bg.innerHTML = "&#10003; Vista";
   }else if(bg){
     bg.innerHTML = "&#10003; Vista";
