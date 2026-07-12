@@ -1255,7 +1255,7 @@ function daysAgoStr(n){
 }
 function cardNext(it, p){
   const pct = p.total ? Math.round(p.watched / p.total * 100) : 0;
-  const remaining = p.total - p.watched - 1;
+  const remaining = remainingAfter(it, p.next.s, p.next.e);   // solo episodi gia' usciti
   const plus = remaining > 0 ? '<span class="plus">+' + remaining + '</span>' : "";
   const nextLabel = "S" + p.next.s + " E" + p.next.e;
   const isNew = it.last_air_date && it.last_air_date >= daysAgoStr(7) && it.last_air_label === nextLabel;
