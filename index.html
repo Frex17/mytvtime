@@ -1613,7 +1613,7 @@ $("#prevModal").addEventListener("click", e => {
 });
 
 function remainingAfter(it, season, ep){
-  // episodi (usciti) non ancora visti dopo questo, in tutta la serie
+  // episodi GIA' USCITI e non ancora visti dopo questo, in tutta la serie
   const set = watchedSet(it.tmdb_id);
   const t = todayStr();
   let count = 0;
@@ -1621,9 +1621,10 @@ function remainingAfter(it, season, ep){
     for(let e = 1; e <= st.c; e++){
       if(st.n < season || (st.n === season && e <= ep)) continue;
       if(set.has(st.n + "-" + e)) continue;
-      // conta solo se uscito (o se non conosciamo le date)
       const m = metaCached(it, st.n, e);
-      if(m && (!m.air_date || m.air_date > t)) continue;
+      // conta SOLO se ho la certezza che sia gia' uscito (data reale <= oggi).
+      // Se non conosco la data o e' futura, non lo conto: non e' ancora disponibile.
+      if(!m || !m.air_date || m.air_date > t) continue;
       count++;
     }
   }
