@@ -977,16 +977,21 @@ function categorize(it){
   }
 
   const label = "S" + p.next.s + " E" + p.next.e;
-  // per le serie divise a mano, il confronto con TMDB avviene in numerazione TMDB
+  // confronto in numerazione TMDB (per le serie divise a mano)
   const nx = mapPair(it, p.next.s, p.next.e);
-  const mLabel = "S" + nx.s + " E" + nx.e;
   const la = labelPos(it.last_air_label);
-  const afterLastAired = la && (nx.s > la[0] || (nx.s === la[0] && nx.e > la[1]));
-  const nextIsScheduled = it.next_air_label === mLabel && futureDate;
-  if(afterLastAired || nextIsScheduled){
-    return { sec: "up", p: p, date: futureDate, label: label };
+  // il prossimo da vedere e' GIA' USCITO? (viene prima o coincide con l'ultima puntata andata in onda)
+  const nextAlreadyAired = la && (nx.s < la[0] || (nx.s === la[0] && nx.e <= la[1]));
+  // c'e' un episodio futuro programmato?
+  const hasUpcoming = !!futureDate;
+
+  if(nextAlreadyAired){
+    // hai roba uscita da recuperare -> Da vedere.
+    // Se la serie e' in corso con una puntata futura, appare ANCHE in In arrivo.
+    return { sec: "next", p: p, alsoUp: hasUpcoming, upDate: futureDate, upLabel: it.next_air_label || label };
   }
-  return { sec: "next", p: p };
+  // il prossimo da vedere non e' ancora uscito -> sei in pari -> In arrivo
+  return { sec: "up", p: p, date: futureDate, label: label };
 }
 
 function renderSerie(){ renderTvList("#serieList", false, serieTab); }
@@ -1007,7 +1012,12 @@ function renderTvList(target, animeMode, tab){
   let bucket = [];
   for(const it of shows){
     const c = categorize(it);
-    if(c.sec === tab) bucket.push({ it: it, c: c });
+    if(c.sec === tab){
+      bucket.push({ it: it, c: c });
+    }else if(tab === "up" && c.sec === "next" && c.alsoUp){
+      // doppia presenza: serie con episodi da recuperare MA anche con prossima uscita programmata
+      bucket.push({ it: it, c: { sec: "up", p: c.p, date: c.upDate, label: c.upLabel } });
+    }
   }
   let cartoons = [];
   if(!animeMode){
@@ -2580,7 +2590,7 @@ $("#mInfo").addEventListener("click", () => {
   let cacheKb = 0;
   try{ cacheKb = Math.round((localStorage.getItem("showtime_cache") || "").length / 1024); }catch(e){}
   $("#infoBody").innerHTML =
-    "<b style=\"color:var(--cream)\">ShowTime v25</b><br>" +
+    "<b style=\"color:var(--cream)\">ShowTime v26</b><br>" +
     "Dati di TMDB &middot; salvataggio su Supabase<br>" +
     "Serie: " + nSerie + " &middot; Anime: " + nAnime + " &middot; Film: " + nFilm + "<br>" +
     "Episodi segnati: " + episodes.length.toLocaleString("it-IT") + "<br>" +
