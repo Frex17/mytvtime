@@ -980,33 +980,66 @@ function categorize(it){
   // confronto in numerazione TMDB (per le serie divise a mano)
   const nx = mapPair(it, p.next.s, p.next.e);
   const mLabel = "S" + nx.s + " E" + nx.e;
-  const hasUpcoming = !!futureDate;
 
-  // Il prossimo da vedere e' GIA' USCITO? Determinato con piu' segnali, in ordine di affidabilita':
+  // Il prossimo da vedere e' GIA' USCITO? Deciso in base alla DATA REALE, in ordine di affidabilita':
   let nextAlreadyAired;
   const meta = metaCached(it, p.next.s, p.next.e);   // date reali se in cache
   if(meta && meta.air_date){
-    // segnale migliore: la data reale dell'episodio
-    nextAlreadyAired = meta.air_date <= t;
-  }else if(it.next_air_label === mLabel && futureDate){
-    // il prossimo da vedere COINCIDE con la prossima uscita programmata futura -> non ancora uscito
-    nextAlreadyAired = false;
+    nextAlreadyAired = meta.air_date <= t;                 // (1) data reale dell'episodio
   }else{
     const la = labelPos(it.last_air_label);
-    if(la){
-      // confronta con l'ultima puntata andata in onda
-      nextAlreadyAired = (nx.s < la[0] || (nx.s === la[0] && nx.e <= la[1]));
+    if(la && (nx.s < la[0] || (nx.s === la[0] && nx.e <= la[1]))){
+      nextAlreadyAired = true;                             // (2) viene prima/uguale all'ultima andata in onda -> uscito
+    }else if(it.next_air_label === mLabel){
+      // (3) il prossimo da vedere e' etichettato come "prossima uscita":
+      // e' uscito solo se quella data e' passata (o assente); se e' futura, non ancora
+      nextAlreadyAired = !(it.next_air_date && it.next_air_date > t);
+    }else if(la){
+      nextAlreadyAired = false;                            // (4) viene dopo l'ultima uscita e non e' quello programmato
     }else{
-      // nessun dato sulle date: se la serie e' in corso assumiamo che il prossimo sia disponibile
-      // (meglio mostrarlo in "Da vedere" che nasconderlo)
-      nextAlreadyAired = true;
+      nextAlreadyAired = true;                             // (5) nessun dato: mostralo, non nasconderlo
+    }
+  }
+
+  // C'e' un episodio FUTURO da mostrare in "In arrivo"?
+  // Cerco il primo episodio NON visto con data futura, partendo dal prossimo-da-vedere.
+  // Uso le date reali in cache quando ci sono; in mancanza, ricado sui campi next_air.
+  let upDate = null, upLabel = "";
+  {
+    // se il prossimo-da-vedere e' gia' uscito, l'episodio "in arrivo" e' il primo futuro dopo di lui
+    const startS = p.next.s, startE = p.next.e;
+    let found = null;
+    if(seasonCache[it.tmdb_id + "-" + mapPair(it, startS, startE).s]){
+      // ho i dati reali: scorro gli episodi della serie cercando il primo futuro non visto
+      const set = watchedSet(it.tmdb_id);
+      outer:
+      for(const st of (it.seasons_json || [])){
+        for(let e = 1; e <= st.c; e++){
+          if(st.n < startS || (st.n === startS && e < startE)) continue;
+          const m = metaCached(it, st.n, e);
+          if(m && m.air_date && m.air_date > t){
+            found = { s: st.n, e: e, date: m.air_date };
+            break outer;
+          }
+        }
+      }
+    }
+    if(found){
+      upDate = found.date; upLabel = "S" + found.s + " E" + found.e;
+    }else if(futureDate){
+      // fallback sui campi riassunto, solo se coerenti (l'uscita programmata viene dopo il prossimo-da-vedere)
+      const npos = labelPos(it.next_air_label);
+      if(!nextAlreadyAired){
+        upDate = futureDate; upLabel = it.next_air_label || label;
+      }else if(npos && (npos[0] > nx.s || (npos[0] === nx.s && npos[1] > nx.e))){
+        upDate = futureDate; upLabel = it.next_air_label;
+      }
     }
   }
 
   if(nextAlreadyAired){
-    // hai roba uscita da recuperare -> Da vedere.
-    // Se la serie e' in corso con una puntata futura, appare ANCHE in In arrivo.
-    return { sec: "next", p: p, alsoUp: hasUpcoming, upDate: futureDate, upLabel: it.next_air_label || label };
+    // hai un episodio uscito da vedere -> Da vedere (+ In arrivo se c'e' un futuro successivo)
+    return { sec: "next", p: p, alsoUp: !!upDate, upDate: upDate, upLabel: upLabel };
   }
   // il prossimo da vedere non e' ancora uscito -> sei in pari -> In arrivo
   return { sec: "up", p: p, date: futureDate, label: label };
@@ -1377,6 +1410,41 @@ function renderAll(){
   renderFilm();
   renderStats();
   if(currentDetail) renderDetailHead();
+  prefetchNextDates();   // in background: carica le date dei prossimi episodi e ricategorizza
+}
+
+// Assicura che la data reale del "prossimo da vedere" sia nota per le serie in corso,
+// cosi' Da vedere / In arrivo sono sempre accurati. Gira in background, senza bloccare.
+let prefetchRunning = false;
+async function prefetchNextDates(){
+  if(prefetchRunning || !navigator.onLine || !tmdbKey()) return;
+  prefetchRunning = true;
+  try{
+    // raccogli le serie in corso di cui non conosco ancora la data del prossimo episodio
+    const todo = [];
+    for(const it of items){
+      if(it.media_type !== "tv") continue;
+      if(!ONGOING.includes(it.show_status || "")) continue;
+      const p = progressOf(it);
+      if(!p.next) continue;
+      if(metaCached(it, p.next.s, p.next.e)) continue;   // gia' nota
+      todo.push({ it: it, season: p.next.s });
+    }
+    if(!todo.length){ prefetchRunning = false; return; }
+    // carica con concorrenza limitata (max 3 alla volta), poi ridisegna una volta sola
+    let idx = 0, changed = false;
+    async function worker(){
+      while(idx < todo.length){
+        const job = todo[idx++];
+        const before = categorize(job.it).sec;
+        try{ await ensureMetaFor(job.it, job.season); }catch(e){}
+        if(categorize(job.it).sec !== before) changed = true;
+      }
+    }
+    await Promise.all([worker(), worker(), worker()]);
+    if(changed){ renderSerie(); renderAnime(); }
+  }catch(e){ /* silenzioso */ }
+  finally{ prefetchRunning = false; }
 }
 
 /* ================= SEARCH ================= */
@@ -2623,7 +2691,7 @@ $("#mInfo").addEventListener("click", () => {
   let cacheKb = 0;
   try{ cacheKb = Math.round((localStorage.getItem("showtime_cache") || "").length / 1024); }catch(e){}
   $("#infoBody").innerHTML =
-    "<b style=\"color:var(--cream)\">ShowTime v26</b><br>" +
+    "<b style=\"color:var(--cream)\">ShowTime v27</b><br>" +
     "Dati di TMDB &middot; salvataggio su Supabase<br>" +
     "Serie: " + nSerie + " &middot; Anime: " + nAnime + " &middot; Film: " + nFilm + "<br>" +
     "Episodi segnati: " + episodes.length.toLocaleString("it-IT") + "<br>" +
