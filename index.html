@@ -956,22 +956,48 @@ function labelPos(l){
   const m = /^S(\d+) E(\d+)$/.exec(l || "");
   return m ? [parseInt(m[1]), parseInt(m[2])] : null;
 }
+// primo episodio NON visto con data futura (dalle date reali in cache), o null
+function firstFutureEp(it){
+  const set = watchedSet(it.tmdb_id);
+  const t = todayStr();
+  for(const st of (it.seasons_json || [])){
+    for(let e = 1; e <= st.c; e++){
+      if(set.has(st.n + "-" + e)) continue;
+      const m = metaCached(it, st.n, e);
+      if(m && m.air_date && m.air_date > t){
+        return { s: st.n, e: e, date: m.air_date };
+      }
+      // se un episodio non visto e' gia' uscito, non e' lui il "futuro": continua a cercarne uno futuro
+    }
+  }
+  return null;
+}
 function categorize(it){
   const p = progressOf(it);
   if(it.status === "dropped") return { sec: "done", p: p, dropped: true };
   const t = todayStr();
-  const futureDate = (it.next_air_date && it.next_air_date > t) ? it.next_air_date : null;
+  // data del prossimo episodio futuro: prima dalle date REALI in cache (sempre aggiornate),
+  // poi come ripiego dal campo next_air_date (che TMDB aggiorna in ritardo)
+  let futureDate = null, futureLabel = null;
+  const firstFuture = firstFutureEp(it);
+  if(firstFuture){
+    futureDate = firstFuture.date;
+    futureLabel = "S" + firstFuture.s + " E" + firstFuture.e;
+  }else if(it.next_air_date && it.next_air_date > t){
+    futureDate = it.next_air_date;
+    futureLabel = it.next_air_label || null;
+  }
 
   if(!p.next){
     // tutto visto: decide l'utente se ha scelto, altrimenti lo stato TMDB
     if(it.cat_override === "done") return { sec: "done", p: p };
-    if(it.cat_override === "up") return { sec: "up", p: p, date: futureDate, label: it.next_air_label || "" };
+    if(it.cat_override === "up") return { sec: "up", p: p, date: futureDate, label: futureLabel || it.next_air_label || "" };
     if(ONGOING.includes(it.show_status || "")){
       // "in corso" ma ferma da 5+ anni senza nulla in programma = di fatto conclusa
       if(!futureDate && it.last_air_date && it.last_air_date < daysAgoStr(1825)){
         return { sec: "done", p: p };
       }
-      return { sec: "up", p: p, date: futureDate, label: it.next_air_label || "" };
+      return { sec: "up", p: p, date: futureDate, label: futureLabel || it.next_air_label || "" };
     }
     return { sec: "done", p: p };
   }
@@ -1428,19 +1454,23 @@ async function prefetchNextDates(){
       if(it.media_type !== "tv") continue;
       if(!ONGOING.includes(it.show_status || "")) continue;
       const p = progressOf(it);
-      if(!p.next) continue;
-      if(metaCached(it, p.next.s, p.next.e)) continue;   // gia' nota
-      todo.push({ it: it, season: p.next.s });
+      // il prossimo da vedere, se c'e'; altrimenti l'ultima stagione (per trovare il futuro quando sei in pari)
+      const season = p.next ? p.next.s : (it.seasons_json && it.seasons_json.length ? it.seasons_json[it.seasons_json.length - 1].n : null);
+      if(season == null) continue;
+      if(p.next && metaCached(it, p.next.s, p.next.e)) continue;   // gia' nota
+      if(!p.next && metaCached(it, season, 1)) continue;           // stagione gia' in cache
+      todo.push({ it: it, season: season });
     }
     if(!todo.length){ prefetchRunning = false; return; }
     // carica con concorrenza limitata (max 3 alla volta), poi ridisegna una volta sola
     let idx = 0, changed = false;
+    function sig(it){ const c = categorize(it); return c.sec + "|" + (c.date || "") + "|" + (c.label || "") + "|" + (c.alsoUp ? c.upDate : ""); }
     async function worker(){
       while(idx < todo.length){
         const job = todo[idx++];
-        const before = categorize(job.it).sec;
+        const before = sig(job.it);
         try{ await ensureMetaFor(job.it, job.season); }catch(e){}
-        if(categorize(job.it).sec !== before) changed = true;
+        if(sig(job.it) !== before) changed = true;
       }
     }
     await Promise.all([worker(), worker(), worker()]);
